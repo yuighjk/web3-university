@@ -16,6 +16,8 @@ import CourseDetail from '@/pages/CourseDetail';
 import SwapPage from '@/pages/SwapPage';
 import ProfilePage from '@/pages/ProfilePage';
 import AdminPage from '@/pages/AdminPage';
+import CreatorPage from '@/pages/CreatorPage';
+import './styles.css';
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -67,6 +69,22 @@ const router = createBrowserRouter([
       </Layout>
     ),
   },
+  {
+    path: '/creator',
+    element: (
+      <Layout>
+        <CreatorPage />
+      </Layout>
+    ),
+  },
+  {
+    path: '/owner',
+    element: (
+      <Layout>
+        <AdminPage />
+      </Layout>
+    ),
+  },
 ]);
 
 const rootEl = document.getElementById('root');
@@ -78,9 +96,12 @@ const AppContent = (
   <ConfigProvider
     locale={zhCN}
     theme={{
-      algorithm: theme.darkAlgorithm,
+      algorithm: theme.defaultAlgorithm,
       token: {
-        colorPrimary: '#1677ff',
+        colorPrimary: '#7355f5',
+        colorBgBase: '#ffffff',
+        colorTextBase: '#171b2e',
+        borderRadius: 14,
       },
     }}
   >

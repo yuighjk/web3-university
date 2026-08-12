@@ -90,7 +90,8 @@ export default function ProfilePage() {
       const res = await fetch(`${API_BASE}/api/users/${address}`);
       if (!res.ok) throw new Error('获取用户资料失败');
       const json = await res.json() as { data: UserProfile };
-      return json.data;
+      const raw = json.data as UserProfile & { avatarUrl?: string | null; updatedAt?: string };
+      return { ...raw, avatar_url: raw.avatar_url ?? raw.avatarUrl ?? null, updated_at: raw.updated_at ?? raw.updatedAt ?? '' };
     },
     enabled: !!address,
     retry: 1,
@@ -158,7 +159,8 @@ export default function ProfilePage() {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          ...values,
+          username: values.username,
+          avatarUrl: values.avatar_url,
           timestamp: timestamp.toString(),
           signature,
         }),

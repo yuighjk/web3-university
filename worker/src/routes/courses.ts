@@ -11,13 +11,17 @@ export const courseRoutes = new Hono<{ Bindings: Env }>();
 
 // GET /api/courses — public list (no video_urls)
 courseRoutes.get('/', async (c) => {
+  const requestedStatus = c.req.query('status');
+  const status = requestedStatus && ['pending', 'published', 'delisted'].includes(requestedStatus)
+    ? requestedStatus
+    : 'published';
   const { results } = await c.env.DB.prepare(
     `SELECT id, course_id, title, description, cover_url, content_hash, status, provider_address, created_at
      FROM courses
-     WHERE status = 'published'
+     WHERE status = ?
      ORDER BY created_at DESC
      LIMIT 50`
-  ).all();
+  ).bind(status).all();
   return ok(c, results);
 });
 
@@ -171,6 +175,7 @@ courseRoutes.patch('/:id/status', async (c) => {
   }
 
   const { status, address, timestamp, signature } = body;
+  if (!address || !timestamp || !signature) return err(c, 'Missing auth fields', 400);
   const VALID_STATUSES = ['pending', 'published', 'delisted'];
   if (!VALID_STATUSES.includes(status)) {
     return err(c, `Invalid status. Allowed: ${VALID_STATUSES.join(', ')}`, 400);
