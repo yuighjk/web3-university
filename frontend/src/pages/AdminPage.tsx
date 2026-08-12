@@ -17,7 +17,6 @@ import {
   Typography,
 } from 'antd';
 import { waitForTransactionReceipt } from 'viem/actions';
-import { useSignTypedData } from '@privy-io/react-auth';
 
 import { courseMarketAbi, courseCertificateAbi } from '@/contracts/abis';
 import { COURSE_MARKET_ADDRESS, COURSE_CERTIFICATE_ADDRESS } from '@/contracts/addresses';
@@ -259,8 +258,6 @@ interface PendingCourse extends BackendCourse {
 
 function CourseApprovalTab({ publicClient, walletClient, queryClient }: TabProps) {
   const [loadingId, setLoadingId] = useState<number | null>(null);
-  const { signTypedData } = useSignTypedData();
-  const { address } = useAccount();
 
   const { data: pendingCourses, isLoading } = useQuery<PendingCourse[]>({
     queryKey: ['pending-courses'],
@@ -297,22 +294,10 @@ function CourseApprovalTab({ publicClient, walletClient, queryClient }: TabProps
         })) as `0x${string}`;
         await waitForTransactionReceipt(publicClient, { hash });
 
-        const timestamp = Date.now();
-        if (!address) throw new Error('未连接 Owner 钱包');
-        const signature = await signTypedData({
-          domain: { name: 'Web3University', version: '1', chainId: 11155111 },
-          types: { Action: [
-            { name: 'action', type: 'string' },
-            { name: 'address', type: 'address' },
-            { name: 'timestamp', type: 'uint256' },
-          ] },
-          primaryType: 'Action',
-          message: { action: 'updateCourseStatus', address: address as `0x${string}`, timestamp: BigInt(timestamp) },
-        });
         await fetch(`${API_BASE}/api/courses/${course.course_id}/status`, {
           method: 'PATCH',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ status: 'published', address, timestamp, signature }),
+          body: JSON.stringify({ status: 'published' }),
         });
 
         message.success(`课程 "${course.title}" 已上架`);
@@ -328,7 +313,7 @@ function CourseApprovalTab({ publicClient, walletClient, queryClient }: TabProps
         setLoadingId(null);
       }
     },
-    [publicClient, walletClient, queryClient, signTypedData, address],
+    [publicClient, walletClient, queryClient],
   );
 
   const columns = [
