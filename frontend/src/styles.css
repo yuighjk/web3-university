@@ -8,7 +8,7 @@
 body { margin: 0; min-width: 0; background: #f7f7fb; }
 a { color: inherit; }
 .app-shell { min-height: 100vh; background: #f7f7fb !important; }
-.app-sider { background: #fff !important; border-right: 1px solid #ececf4; position: sticky !important; top: 0; height: 100vh; overflow: hidden; align-self: flex-start; }
+.app-sider { background: #fff !important; border-right: 1px solid #ececf4; position: fixed !important; top: 0; left: 0; height: 100vh; overflow: hidden; z-index: 100; transition: width 0.2s ease; }
 .brand-block { height: 64px; padding: 14px 16px; display: flex; align-items: center; }
 .brand-link { display: flex; align-items: center; gap: 10px; text-decoration: none; }
 .brand-mark { width: 36px; height: 36px; flex: 0 0 36px; border-radius: 10px; display: grid; place-items: center; color: #d7c8ff; font-size: 16px; background: linear-gradient(145deg, #6740ec 12%, #7651ec 56%, #2ebce9 100%); box-shadow: 0 6px 12px rgba(95, 64, 229, .15); }
@@ -20,9 +20,19 @@ a { color: inherit; }
 .app-menu .ant-menu-item .ant-menu-item-icon { font-size: 16px; margin-inline-end: 10px; }
 .app-menu .ant-menu-item-selected { background: #f1ebff !important; color: #7558ff !important; }
 .app-menu .ant-menu-item-selected::after { display: none; }
+/* Collapsed state: square icon background */
+.app-shell.collapsed .app-menu { padding: 8px 8px; }
+.app-shell.collapsed .app-menu .ant-menu-item { width: 40px; height: 40px; line-height: 40px; padding: 0 !important; margin: 4px auto !important; display: flex; align-items: center; justify-content: center; border-radius: 10px; }
+.app-shell.collapsed .app-menu .ant-menu-item .ant-menu-item-icon { margin-inline-end: 0; font-size: 18px; }
+.app-shell.collapsed .brand-block { justify-content: center; padding: 14px 0; }
+.app-shell.collapsed .brand-copy { display: none; }
+.app-shell.collapsed .brand-link { justify-content: center; }
+.app-shell.collapsed .sider-bottom { left: 8px; right: 8px; }
+.app-shell.collapsed .collapse-button { width: 40px; height: 40px; padding: 0; display: flex; align-items: center; justify-content: center; }
 .sider-bottom { position: absolute; left: 12px; right: 12px; bottom: 12px; }
 .collapse-button { height: 36px; border-radius: 10px; background: #f4f4fa; color: #8690a8; font-size: 15px; }
-.main-layout { background: #f7f7fb !important; }
+.main-layout { background: #f7f7fb !important; margin-left: 220px; transition: margin-left 0.2s ease; }
+.app-shell.collapsed .main-layout { margin-left: 64px; }
 .app-header { height: 56px; line-height: 56px; padding: 0 20px 0 24px; display: flex; align-items: center; justify-content: space-between; background: #fff !important; border-bottom: 1px solid #ececf4; }
 .network-tag, .connected-tag { border-radius: 6px; padding: 2px 8px; font-size: 12px; }
 .network-tag { color: #5c70d8; border-color: #bbc8ff; background: #f1f4ff; }

@@ -48,7 +48,7 @@ export default function Layout({ children }: LayoutProps) {
   const shortAddress = address ? `${address.slice(0, 6)}...${address.slice(-4)}` : '';
 
   return (
-    <AntLayout className="app-shell">
+    <AntLayout className={`app-shell ${collapsed ? 'collapsed' : ''}`}>
       <Sider
         width={220}
         collapsedWidth={64}
@@ -57,6 +57,8 @@ export default function Layout({ children }: LayoutProps) {
         className="app-sider"
         theme="light"
         trigger={null}
+        breakpoint="lg"
+        style={{ transition: 'all 0.2s' }}
       >
         <div className="brand-block">
           <Link to="/" className="brand-link">
