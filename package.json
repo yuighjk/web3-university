@@ -1,0 +1,24 @@
+{
+  "name": "web3-university",
+  "version": "1.0.0",
+  "description": "Web3 教育平台 DApp",
+  "type": "module",
+  "scripts": {
+    "build": "npx hardhat compile",
+    "test": "npx hardhat test",
+    "deploy:local": "npx hardhat ignition deploy ./ignition/modules/Tokens.ts --network localhost",
+    "deploy:sepolia": "npx hardhat ignition deploy ./ignition/modules/Tokens.ts --network sepolia --verify"
+  },
+  "devDependencies": {
+    "@nomicfoundation/hardhat-toolbox-viem": "^5.0.7",
+    "@openzeppelin/contracts": "^5.6.1",
+    "dotenv": "^17.4.2",
+    "hardhat": "^3.12.0"
+  },
+  "keywords": [
+    "web3",
+    "dapp",
+    "ethereum",
+    "education"
+  ]
+}

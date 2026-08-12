@@ -1,0 +1,11 @@
+node_modules
+dist
+cache
+artifacts
+ignition/deployments
+coverage
+typechain-types
+.env
+frontend/node_modules
+frontend/dist
+worker/.wrangler

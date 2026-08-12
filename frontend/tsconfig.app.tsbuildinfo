@@ -1,0 +1,1 @@
+{"root":["./src/main.tsx","./src/vite-env.d.ts","./src/wagmi.ts","./src/components/layout.tsx","./src/contracts/abis.ts","./src/contracts/addresses.ts","./src/hooks/usebuycourse.ts","./src/pages/adminpage.tsx","./src/pages/coursedetail.tsx","./src/pages/courselist.tsx","./src/pages/profilepage.tsx","./src/pages/swappage.tsx","./src/types/index.ts"],"version":"5.9.3"}

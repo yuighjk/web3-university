@@ -1,0 +1,14 @@
+name = "web3-university-worker"
+main = "src/index.ts"
+compatibility_date = "2024-11-01"
+compatibility_flags = ["nodejs_compat"]
+
+[[d1_databases]]
+binding = "DB"
+database_name = "web3-university"
+database_id = "placeholder-replace-after-wrangler-d1-create"
+
+[vars]
+# Public vars (non-sensitive). Sensitive values use: wrangler secret put
+# COURSE_MARKET_ADDRESS = "0x..."
+# SEPOLIA_RPC_URL = "https://..."

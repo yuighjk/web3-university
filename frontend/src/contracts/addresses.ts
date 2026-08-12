@@ -1,0 +1,14 @@
+// Contract addresses injected from environment variables
+// All values are public on-chain addresses — no secrets here
+
+export const YD_TOKEN_ADDRESS = (import.meta.env.VITE_YD_TOKEN_ADDRESS || '0x0000000000000000000000000000000000000000') as `0x${string}`;
+
+export const MOCK_USDC_ADDRESS = (import.meta.env.VITE_MOCK_USDC_ADDRESS || '0x0000000000000000000000000000000000000000') as `0x${string}`;
+
+export const COURSE_MARKET_ADDRESS = (import.meta.env.VITE_COURSE_MARKET_ADDRESS || '0x0000000000000000000000000000000000000000') as `0x${string}`;
+
+export const COURSE_CERTIFICATE_ADDRESS = (import.meta.env.VITE_COURSE_CERTIFICATE_ADDRESS || '0x0000000000000000000000000000000000000000') as `0x${string}`;
+
+export const SWAP_ROUTER_ADDRESS = (import.meta.env.VITE_SWAP_ROUTER_ADDRESS || '0x0000000000000000000000000000000000000000') as `0x${string}`;
+
+export const UNISWAP_POOL_ADDRESS = (import.meta.env.VITE_UNISWAP_POOL_ADDRESS || '0x0000000000000000000000000000000000000000') as `0x${string}`;
