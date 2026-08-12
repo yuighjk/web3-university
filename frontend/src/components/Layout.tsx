@@ -50,8 +50,8 @@ export default function Layout({ children }: LayoutProps) {
   return (
     <AntLayout className="app-shell">
       <Sider
-        width={326}
-        collapsedWidth={76}
+        width={220}
+        collapsedWidth={64}
         collapsed={collapsed}
         onCollapse={setCollapsed}
         className="app-sider"

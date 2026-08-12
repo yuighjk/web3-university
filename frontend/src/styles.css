@@ -9,37 +9,37 @@ body { margin: 0; min-width: 0; background: #f7f7fb; }
 a { color: inherit; }
 .app-shell { min-height: 100vh; background: #f7f7fb !important; }
 .app-sider { background: #fff !important; border-right: 1px solid #ececf4; position: sticky !important; top: 0; height: 100vh; overflow: hidden; align-self: flex-start; }
-.brand-block { height: 150px; padding: 28px 24px 20px; }
-.brand-link { display: flex; align-items: center; gap: 14px; text-decoration: none; }
-.brand-mark { width: 58px; height: 58px; flex: 0 0 58px; border-radius: 19px; display: grid; place-items: center; color: #d7c8ff; font-size: 23px; background: linear-gradient(145deg, #6740ec 12%, #7651ec 56%, #2ebce9 100%); box-shadow: 0 10px 20px rgba(95, 64, 229, .2); }
-.brand-copy { display: flex; flex-direction: column; gap: 8px; }
-.brand-title { font-size: 24px; line-height: 1; font-weight: 800; letter-spacing: -.6px; white-space: nowrap; }
-.brand-subtitle { color: #8a91ab; font-size: 13px; letter-spacing: 1.1px; white-space: nowrap; }
-.app-menu { border-inline-end: 0 !important; padding: 14px 16px; background: transparent !important; }
-.app-menu .ant-menu-item { height: 56px; line-height: 56px; margin: 8px 0 !important; border-radius: 16px; font-size: 18px; font-weight: 650; color: #20212a; }
-.app-menu .ant-menu-item .ant-menu-item-icon { font-size: 20px; margin-inline-end: 15px; }
+.brand-block { height: 64px; padding: 14px 16px; display: flex; align-items: center; }
+.brand-link { display: flex; align-items: center; gap: 10px; text-decoration: none; }
+.brand-mark { width: 36px; height: 36px; flex: 0 0 36px; border-radius: 10px; display: grid; place-items: center; color: #d7c8ff; font-size: 16px; background: linear-gradient(145deg, #6740ec 12%, #7651ec 56%, #2ebce9 100%); box-shadow: 0 6px 12px rgba(95, 64, 229, .15); }
+.brand-copy { display: flex; flex-direction: column; gap: 2px; }
+.brand-title { font-size: 15px; line-height: 1.2; font-weight: 700; letter-spacing: -.3px; white-space: nowrap; }
+.brand-subtitle { color: #8a91ab; font-size: 11px; letter-spacing: 0.5px; white-space: nowrap; }
+.app-menu { border-inline-end: 0 !important; padding: 8px 10px; background: transparent !important; }
+.app-menu .ant-menu-item { height: 40px; line-height: 40px; margin: 4px 0 !important; border-radius: 10px; font-size: 14px; font-weight: 500; color: #20212a; padding-left: 14px !important; }
+.app-menu .ant-menu-item .ant-menu-item-icon { font-size: 16px; margin-inline-end: 10px; }
 .app-menu .ant-menu-item-selected { background: #f1ebff !important; color: #7558ff !important; }
 .app-menu .ant-menu-item-selected::after { display: none; }
-.sider-bottom { position: absolute; left: 20px; right: 20px; bottom: 20px; }
-.collapse-button { height: 50px; border-radius: 15px; background: #f4f4fa; color: #8690a8; font-size: 19px; }
+.sider-bottom { position: absolute; left: 12px; right: 12px; bottom: 12px; }
+.collapse-button { height: 36px; border-radius: 10px; background: #f4f4fa; color: #8690a8; font-size: 15px; }
 .main-layout { background: #f7f7fb !important; }
-.app-header { height: 94px; line-height: 94px; padding: 0 28px 0 36px; display: flex; align-items: center; justify-content: space-between; background: #fff !important; border-bottom: 1px solid #ececf4; }
-.network-tag, .connected-tag { border-radius: 8px; padding: 4px 12px; font-size: 15px; }
+.app-header { height: 56px; line-height: 56px; padding: 0 20px 0 24px; display: flex; align-items: center; justify-content: space-between; background: #fff !important; border-bottom: 1px solid #ececf4; }
+.network-tag, .connected-tag { border-radius: 6px; padding: 2px 8px; font-size: 12px; }
 .network-tag { color: #5c70d8; border-color: #bbc8ff; background: #f1f4ff; }
 .connected-tag { color: #5aaf56; border-color: #b8e8ac; background: #f3fff0; }
-.login-button { height: 48px; padding: 0 23px; border-radius: 13px; background: linear-gradient(135deg, #7650ff, #6740ec) !important; border: 0 !important; font-size: 17px; box-shadow: 0 5px 0 #d8ceff; }
-.account-button { color: #24253a; font-size: 16px; }
-.app-content { padding: 28px 28px 40px; min-height: calc(100vh - 154px); }
-.app-footer { text-align: center; background: #fff !important; color: #8d91a2; font-size: 16px; border-top: 1px solid #ececf4; }
+.login-button { height: 34px; padding: 0 16px; border-radius: 8px; background: linear-gradient(135deg, #7650ff, #6740ec) !important; border: 0 !important; font-size: 13px; box-shadow: 0 3px 0 #d8ceff; }
+.account-button { color: #24253a; font-size: 13px; }
+.app-content { padding: 20px 24px 32px; min-height: calc(100vh - 100px); }
+.app-footer { text-align: center; background: #fff !important; color: #8d91a2; font-size: 12px; border-top: 1px solid #ececf4; padding: 12px 0; }
 
 @media (max-width: 1200px) {
   body { min-width: 0; }
-  .app-sider { width: 250px !important; min-width: 250px !important; max-width: 250px !important; }
-  .brand-block { padding-left: 20px; }
-  .brand-mark { width: 64px; height: 64px; flex-basis: 64px; border-radius: 21px; }
-  .brand-title { font-size: 21px; }
-  .brand-subtitle { font-size: 12px; }
-  .app-menu .ant-menu-item { font-size: 16px; }
+  .app-sider { width: 200px !important; min-width: 200px !important; max-width: 200px !important; }
+  .brand-block { padding-left: 14px; }
+  .brand-mark { width: 32px; height: 32px; flex-basis: 32px; border-radius: 9px; }
+  .brand-title { font-size: 14px; }
+  .brand-subtitle { font-size: 10px; }
+  .app-menu .ant-menu-item { font-size: 13px; }
 }
 
 .course-page { max-width: 1580px; margin: 0 auto; }
