@@ -4,6 +4,10 @@
   "description": "Web3 教育平台 DApp",
   "type": "module",
   "scripts": {
+    "dev": "node scripts/dev.mjs",
+    "dev:frontend": "npm --prefix frontend run dev",
+    "dev:worker": "npm --prefix worker run dev",
+    "db:migrate:local": "npm --prefix worker run migrate:local",
     "build": "npx hardhat compile",
     "test": "npx hardhat test",
     "deploy:local": "npx hardhat ignition deploy ./ignition/modules/Tokens.ts --network localhost",
