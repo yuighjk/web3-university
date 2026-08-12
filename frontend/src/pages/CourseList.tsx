@@ -1,11 +1,12 @@
 import { useReadContract } from 'wagmi';
 import { useQuery } from '@tanstack/react-query';
-import { Card, Row, Col, Tag, Spin, Empty, Typography, Space } from 'antd';
+import { Card, Row, Col, Tag, Spin, Empty, Typography, Space, Button } from 'antd';
+import { ArrowRightOutlined, BookOutlined, SafetyCertificateOutlined, SwapOutlined, UserAddOutlined } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 import { formatUnits } from 'viem';
 
-import { courseMarketAbi } from '@/contracts/abis';
-import { COURSE_MARKET_ADDRESS } from '@/contracts/addresses';
+import { courseMarketAbi, courseCertificateAbi } from '@/contracts/abis';
+import { COURSE_MARKET_ADDRESS, COURSE_CERTIFICATE_ADDRESS } from '@/contracts/addresses';
 import type { BackendCourse, OnChainCourse } from '@/types';
 
 const { Title, Text, Paragraph } = Typography;
@@ -20,6 +21,12 @@ export default function CourseList() {
     address: COURSE_MARKET_ADDRESS,
     abi: courseMarketAbi,
     functionName: 'getAllCourseIds',
+  });
+
+  const { data: certificateName } = useReadContract({
+    address: COURSE_CERTIFICATE_ADDRESS,
+    abi: courseCertificateAbi,
+    functionName: 'name',
   });
 
   // 2. Fetch each course from contract via individual reads
@@ -80,79 +87,47 @@ export default function CourseList() {
       };
     });
 
-  if (isLoading) {
-    return (
-      <div style={{ textAlign: 'center', padding: '80px 0' }}>
-        <Spin size="large" tip="加载课程中..." />
-      </div>
-    );
-  }
-
-  if (merged.length === 0) {
-    return (
-      <div style={{ padding: '80px 0' }}>
-        <Empty description="暂无课程" />
-      </div>
-    );
-  }
-
   return (
-    <div>
-      <Title level={2} style={{ marginBottom: 24 }}>全部课程</Title>
-      <Row gutter={[24, 24]}>
-        {merged.map((course) => (
-          <Col key={course.id} xs={24} sm={12} md={8} lg={6}>
-            <Card
-              hoverable
-              cover={
-                course.coverUrl ? (
-                  <img
-                    alt={course.title}
-                    src={course.coverUrl}
-                    style={{ height: 160, objectFit: 'cover' }}
-                  />
-                ) : (
-                  <div
-                    style={{
-                      height: 160,
-                      background: 'linear-gradient(135deg, #1a1a2e 0%, #16213e 100%)',
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                    }}
-                  >
-                    <Text style={{ color: '#888', fontSize: 14 }}>暂无封面</Text>
-                  </div>
-                )
-              }
-              onClick={() => navigate(`/course/${course.id}`)}
-              style={{ cursor: 'pointer' }}
-            >
-              <Card.Meta
-                title={course.title}
-                description={
-                  <Space direction="vertical" style={{ width: '100%' }} size={4}>
-                    {course.description && (
-                      <Paragraph
-                        ellipsis={{ rows: 2 }}
-                        style={{ marginBottom: 0, color: '#888', fontSize: 12 }}
-                      >
-                        {course.description}
-                      </Paragraph>
-                    )}
-                    <Space>
-                      <Tag color="blue">{formatUnits(course.price, 18)} YD</Tag>
-                      <Text style={{ fontSize: 11, color: '#666' }}>
-                        {course.provider}
-                      </Text>
-                    </Space>
-                  </Space>
-                }
-              />
-            </Card>
-          </Col>
-        ))}
+    <div className="course-page">
+      <section className="course-hero">
+        <div className="hero-content">
+          <Tag className="hero-tag">链上确权 · 链下学习</Tag>
+          <Title>把每一次学习，写进你的<br /><span>Web3 身份</span></Title>
+          <Paragraph>用 YD 币购买课程，完成视频学习，经自动执行器核验后获得不可转让的 ERC721 结业证书。</Paragraph>
+          <Space size={14}>
+          <Button type="primary" size="large" onClick={() => document.getElementById('course-market')?.scrollIntoView({ behavior: 'smooth', block: 'start' })}>探索课程 <ArrowRightOutlined /></Button>
+            <Button size="large" ghost onClick={() => navigate('/swap')}>获取 YD 币</Button>
+          </Space>
+        </div>
+        <div className="hero-token">YD</div>
+      </section>
+
+      <Row gutter={[22, 22]} className="course-stats">
+        <Col xs={24} md={8}><Card bordered={false}><BookOutlined /><strong>{isLoading ? '…' : merged.length}</strong><span>精品 Web3 课程</span></Card></Col>
+        <Col xs={24} md={8}><Card bordered={false}><SwapOutlined /><strong>{isLoading ? '…' : merged[0] ? `${formatUnits(merged[0].price, 18)} YD` : '—'}</strong><span>当前课程价格</span></Card></Col>
+        <Col xs={24} md={8}><Card bordered={false}><SafetyCertificateOutlined /><strong>{isLoading ? '…' : certificateName || '—'}</strong><span>不可转让结业证书</span></Card></Col>
       </Row>
+
+      <section id="course-market" className="market-section">
+        <div className="market-heading">
+          <div>
+            <Title level={1}>课程市场</Title>
+            <Text type="secondary">数据库承载丰富内容，Sepolia 合约记录价格、状态和购买关系。</Text>
+          </div>
+          <Button className="teacher-button" icon={<UserAddOutlined />} onClick={() => navigate('/creator')}>申请成为老师</Button>
+        </div>
+        {isLoading ? <div style={{ textAlign: 'center', padding: '60px 0' }}><Spin size="large" tip="加载课程中..." /></div> : merged.length === 0 ? <div style={{ padding: '60px 0' }}><Empty description="暂无课程" /></div> : (
+          <Row gutter={[24, 24]} style={{ marginTop: 24 }}>
+            {merged.map((course) => (
+              <Col key={course.id} xs={24} sm={12} lg={8}>
+                <Card hoverable className="course-card" cover={course.coverUrl ? <img alt={course.title} src={course.coverUrl} /> : <div className="course-cover">Web3</div>} onClick={() => navigate(`/course/${course.id}`)}>
+                  <Card.Meta title={course.title} description={<Space direction="vertical" size={5}>{course.description && <Paragraph ellipsis={{ rows: 2 }} style={{ margin: 0 }}>{course.description}</Paragraph>}<Tag color="purple">{formatUnits(course.price, 18)} YD</Tag></Space>} />
+                </Card>
+              </Col>
+            ))}
+          </Row>
+        )}
+      </section>
     </div>
   );
 }

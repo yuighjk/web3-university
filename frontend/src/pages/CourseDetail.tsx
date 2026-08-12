@@ -1,4 +1,5 @@
 import { useParams } from 'react-router-dom';
+import { useState } from 'react';
 import { useReadContract, useAccount } from 'wagmi';
 import { useQuery } from '@tanstack/react-query';
 import {
@@ -7,23 +8,33 @@ import {
   Card,
   Descriptions,
   Divider,
+  Input,
   List,
+  message,
+  Progress,
   Space,
   Spin,
   Steps,
   Tag,
   Typography,
 } from 'antd';
-import { PlayCircleOutlined, SafetyCertificateOutlined } from '@ant-design/icons';
+import { PlayCircleOutlined, SafetyCertificateOutlined, SendOutlined } from '@ant-design/icons';
 import { formatUnits, keccak256, encodePacked } from 'viem';
 
 import { courseMarketAbi, courseCertificateAbi } from '@/contracts/abis';
 import { COURSE_MARKET_ADDRESS, COURSE_CERTIFICATE_ADDRESS } from '@/contracts/addresses';
 import { useBuyCourse } from '@/hooks/useBuyCourse';
+import { usePrivy, useSignTypedData } from '@privy-io/react-auth';
 import type { BackendCourseDetail, OnChainCourse } from '@/types';
 
 const { Title, Text, Paragraph } = Typography;
 const API_BASE = import.meta.env.VITE_API_BASE_URL || '';
+const EIP712_DOMAIN = { name: 'Web3University', version: '1', chainId: 11155111 } as const;
+const ACTION_TYPES = { Action: [
+  { name: 'action', type: 'string' },
+  { name: 'address', type: 'address' },
+  { name: 'timestamp', type: 'uint256' },
+] };
 
 // Step label map for the buy flow progress indicator
 const STEP_LABELS: Record<string, string> = {
@@ -60,11 +71,13 @@ function verifyContentHash(
   detail: BackendCourseDetail,
   onChainHash: `0x${string}`,
 ): boolean {
-  const videoHashesJoined = detail.video_urls.join(',');
+  const videoHashesJoined = detail.video_urls
+    .map((url) => keccak256(encodePacked(['string'], [url])))
+    .join(',');
   const computed = keccak256(
     encodePacked(
       ['string', 'string', 'string', 'string'],
-      [detail.title, detail.description, videoHashesJoined, detail.cover_url],
+      [detail.title, detail.description, videoHashesJoined, keccak256(encodePacked(['string'], [detail.cover_url]))],
     ),
   );
   return computed === onChainHash;
@@ -73,6 +86,10 @@ function verifyContentHash(
 export default function CourseDetail() {
   const { id } = useParams<{ id: string }>();
   const { address } = useAccount();
+  const { authenticated } = usePrivy();
+  const { signTypedData } = useSignTypedData();
+  const [comment, setComment] = useState('');
+  const [commenting, setCommenting] = useState(false);
   const courseId = BigInt(id ?? '0');
 
   // On-chain course data
@@ -123,16 +140,59 @@ export default function CourseDetail() {
   const { data: videos } = useQuery<string[]>({
     queryKey: ['course-videos', id, address],
     queryFn: async () => {
-      const res = await fetch(`${API_BASE}/api/courses/${id}/videos`, {
-        headers: address ? { 'x-user-address': address } : {},
-      });
+      const res = await fetch(`${API_BASE}/api/courses/${id}/videos?address=${address}`);
       if (!res.ok) throw new Error('视频加载失败');
-      const json = await res.json() as { data: string[] };
-      return json.data;
+      const json = await res.json() as { data: { videoUrls: string[] } };
+      return json.data.videoUrls;
     },
     enabled: !!id && !!hasPurchased && hasPurchased === true,
     retry: 1,
   });
+
+  const { data: progressData, refetch: refetchProgress } = useQuery<{ progress: number; completedAt: string | null }>({
+    queryKey: ['progress', address, id],
+    queryFn: async () => {
+      const res = await fetch(`${API_BASE}/api/progress/${address}/${id}`);
+      const json = await res.json() as { data: { progress: number; completedAt: string | null } };
+      return json.data;
+    },
+    enabled: !!address && !!id,
+  });
+
+  const { data: comments, refetch: refetchComments } = useQuery<{ id: number; user_address: string; content: string; created_at: string }[]>({
+    queryKey: ['comments', id],
+    queryFn: async () => {
+      const res = await fetch(`${API_BASE}/api/courses/${id}/comments`);
+      const json = await res.json() as { data: { id: number; user_address: string; content: string; created_at: string }[] };
+      return json.data;
+    },
+    enabled: !!id,
+  });
+
+  const submitComment = async () => {
+    if (!address || !authenticated || !comment.trim()) return;
+    setCommenting(true);
+    try {
+      const timestamp = Date.now();
+      const signature = await signTypedData({
+        domain: EIP712_DOMAIN,
+        types: ACTION_TYPES,
+        primaryType: 'Action',
+        message: { action: 'postComment', address: address as `0x${string}`, timestamp: BigInt(timestamp) },
+      });
+      const res = await fetch(`${API_BASE}/api/courses/${id}/comments`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ content: comment.trim(), address, timestamp, signature }),
+      });
+      if (!res.ok) throw new Error('评论需要购买课程后才能发布');
+      setComment('');
+      void refetchComments();
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : '评论发布失败');
+    } finally {
+      setCommenting(false);
+    }
+  };
 
   const handleSuccess = () => {
     void refetchChain();
@@ -144,10 +204,7 @@ export default function CourseDetail() {
   const course = onChainCourse as OnChainCourse | undefined;
   const isLoading = chainLoading || backendLoading;
 
-  const contentHashValid =
-    backendDetail && course
-      ? verifyContentHash(backendDetail, course.contentHash)
-      : null;
+  const contentHashValid = backendDetail && course ? verifyContentHash(backendDetail, course.contentHash) : null;
 
   if (isLoading) {
     return (
@@ -260,6 +317,20 @@ export default function CourseDetail() {
         </Card>
       ) : (
         <Card title="课程内容">
+          <div className="learning-progress">
+            <Space style={{ justifyContent: 'space-between', width: '100%' }}>
+              <Text strong>学习进度</Text><Text type="secondary">{progressData?.progress ?? 0}%</Text>
+            </Space>
+            <Progress percent={progressData?.progress ?? 0} strokeColor="#7355f5" />
+            <Button size="small" onClick={async () => {
+              if (!address) return;
+              const timestamp = Date.now();
+              const signature = await signTypedData({ domain: EIP712_DOMAIN, types: ACTION_TYPES, primaryType: 'Action', message: { action: 'updateProgress', address: address as `0x${string}`, timestamp: BigInt(timestamp) } });
+              await fetch(`${API_BASE}/api/progress/${address}/${id}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ progress: 100, timestamp, signature }) });
+              void refetchProgress();
+              message.success('已标记课程完成');
+            }}>标记课程完成</Button>
+          </div>
           {videos && videos.length > 0 ? (
             <List
               dataSource={videos}
@@ -296,6 +367,14 @@ export default function CourseDetail() {
           </Text>
         </Card>
       )}
+
+      <Card title={`课程评论（${comments?.length ?? 0}）`} style={{ marginTop: 20 }}>
+        <Space direction="vertical" style={{ width: '100%' }}>
+          {comments?.map((item) => <div key={item.id} className="comment-row"><Text code>{item.user_address.slice(0, 8)}...</Text><Text>{item.content}</Text><Text type="secondary">{item.created_at}</Text></div>)}
+          {hasPurchased && <Space.Compact style={{ width: '100%' }}><Input value={comment} onChange={(event) => setComment(event.target.value)} placeholder="购买课程后分享你的学习心得" maxLength={2000} /><Button type="primary" icon={<SendOutlined />} loading={commenting} onClick={() => void submitComment()}>发布</Button></Space.Compact>}
+          {!hasPurchased && <Text type="secondary">购买课程后即可发表评论。</Text>}
+        </Space>
+      </Card>
     </div>
   );
 }
