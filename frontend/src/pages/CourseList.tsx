@@ -1,131 +1,104 @@
+import { useMemo, useState } from 'react';
 import { useReadContract } from 'wagmi';
 import { useQuery } from '@tanstack/react-query';
-import { Card, Row, Col, Tag, Spin, Empty, Typography, Space, Button } from 'antd';
-import { ArrowRightOutlined, BookOutlined, SafetyCertificateOutlined, SwapOutlined, UserAddOutlined } from '@ant-design/icons';
-import { useNavigate } from 'react-router-dom';
+import { Button, Empty, Input, Spin, Typography } from 'antd';
+import { ArrowRightOutlined, SearchOutlined, StarOutlined } from '@ant-design/icons';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { formatUnits } from 'viem';
 
-import { courseMarketAbi, courseCertificateAbi } from '@/contracts/abis';
-import { COURSE_MARKET_ADDRESS, COURSE_CERTIFICATE_ADDRESS } from '@/contracts/addresses';
+import { courseMarketAbi } from '@/contracts/abis';
+import { COURSE_MARKET_ADDRESS } from '@/contracts/addresses';
 import type { BackendCourse, OnChainCourse } from '@/types';
 
 const { Title, Text, Paragraph } = Typography;
-
 const API_BASE = import.meta.env.VITE_API_BASE_URL || '';
 
 export default function CourseList() {
   const navigate = useNavigate();
+  const location = useLocation();
+  const query = new URLSearchParams(location.search).get('q')?.trim().toLowerCase() ?? '';
+  const [search, setSearch] = useState(query);
 
-  // 1. Read all course IDs from contract
   const { data: courseIds, isLoading: idsLoading } = useReadContract({
-    address: COURSE_MARKET_ADDRESS,
-    abi: courseMarketAbi,
-    functionName: 'getAllCourseIds',
+    address: COURSE_MARKET_ADDRESS, abi: courseMarketAbi, functionName: 'getAllCourseIds',
   });
-
-  const { data: certificateName } = useReadContract({
-    address: COURSE_CERTIFICATE_ADDRESS,
-    abi: courseCertificateAbi,
-    functionName: 'name',
-  });
-
-  // 2. Fetch each course from contract via individual reads
-  //    (wagmi multicall via useReadContracts)
   const { data: onChainCourses, isLoading: coursesLoading } = useQuery({
-    queryKey: ['onchain-courses', courseIds?.toString()],
-    enabled: !!courseIds && courseIds.length > 0,
+    queryKey: ['onchain-courses', courseIds?.toString()], enabled: !!courseIds && courseIds.length > 0,
     queryFn: async () => {
-      // Dynamic import to avoid circular dep in strict mode
       const { createPublicClient, http } = await import('viem');
       const { sepolia } = await import('wagmi/chains');
-      const client = createPublicClient({
-        chain: sepolia,
-        transport: http(import.meta.env.VITE_SEPOLIA_RPC_URL || undefined),
-      });
-      const results = await client.multicall({
-        contracts: (courseIds ?? []).map((id) => ({
-          address: COURSE_MARKET_ADDRESS,
-          abi: courseMarketAbi,
-          functionName: 'getCourse' as const,
-          args: [id] as [bigint],
-        })),
-      });
-      return results
-        .map((r) => (r.status === 'success' ? (r.result as OnChainCourse) : null))
-        .filter(Boolean) as OnChainCourse[];
+      const client = createPublicClient({ chain: sepolia, transport: http(import.meta.env.VITE_SEPOLIA_RPC_URL || undefined) });
+      const results = await client.multicall({ contracts: (courseIds ?? []).map((id) => ({ address: COURSE_MARKET_ADDRESS, abi: courseMarketAbi, functionName: 'getCourse' as const, args: [id] as [bigint] })) });
+      return results.map((result) => result.status === 'success' ? result.result as OnChainCourse : null).filter(Boolean) as OnChainCourse[];
     },
   });
-
-  // 3. Fetch backend course list
   const { data: backendCourses, isLoading: backendLoading } = useQuery<BackendCourse[]>({
     queryKey: ['backend-courses'],
     queryFn: async () => {
-      const res = await fetch(`${API_BASE}/api/courses`);
-      if (!res.ok) throw new Error('后端接口错误');
-      const json = await res.json() as { data: BackendCourse[] };
-      return json.data;
-    },
-    // Gracefully degrade if backend is not yet deployed
-    retry: 1,
+      const response = await fetch(`${API_BASE}/api/courses`);
+      if (!response.ok) throw new Error('课程接口暂不可用');
+      return ((await response.json()) as { data: BackendCourse[] }).data;
+    }, retry: 1,
   });
+
+  const merged = useMemo(() => (onChainCourses ?? []).filter((item) => item.active).map((item) => {
+    const backend = (backendCourses ?? []).find((course) => BigInt(course.course_id) === item.id);
+    return { id: Number(item.id), title: backend?.title ?? `课程 #${item.id}`, description: backend?.description ?? '', coverUrl: backend?.cover_url ?? '', price: item.price, provider: item.provider };
+  }), [onChainCourses, backendCourses]);
+
+  const courses = useMemo(() => {
+    return merged.filter((course) => {
+      const matchesSearch = !query || `${course.title} ${course.description}`.toLowerCase().includes(query);
+      return matchesSearch;
+    });
+  }, [merged, query]);
 
   const isLoading = idsLoading || coursesLoading || backendLoading;
 
-  // 4. Merge on-chain + backend, only show active courses
-  const merged = (onChainCourses ?? [])
-    .filter((c) => c.active)
-    .map((c) => {
-      const backend = (backendCourses ?? []).find((b) => BigInt(b.course_id) === c.id);
-      return {
-        id: Number(c.id),
-        title: backend?.title ?? `课程 #${c.id}`,
-        description: backend?.description ?? '',
-        coverUrl: backend?.cover_url ?? '',
-        price: c.price,
-        provider: `${c.provider.slice(0, 6)}...${c.provider.slice(-4)}`,
-        active: c.active,
-      };
-    });
-
   return (
-    <div className="course-page">
-      <section className="course-hero">
-        <div className="hero-content">
-          <Tag className="hero-tag">链上确权 · 链下学习</Tag>
-          <Title>把每一次学习，写进你的<br /><span>Web3 身份</span></Title>
-          <Paragraph>用 YD 币购买课程，完成视频学习，经自动执行器核验后获得不可转让的 ERC721 结业证书。</Paragraph>
-          <Space size={14}>
-          <Button type="primary" size="large" onClick={() => document.getElementById('course-market')?.scrollIntoView({ behavior: 'smooth', block: 'start' })}>探索课程 <ArrowRightOutlined /></Button>
-            <Button size="large" ghost onClick={() => navigate('/swap')}>获取 YD 币</Button>
-          </Space>
+    <div className="course-page academy-market">
+      <section className="academy-hero">
+        <Text className="eyebrow"><span /> WEB3 大学 · SEPOLIA</Text>
+        <Title>链上技能，<br />由学习与证书共同证明</Title>
+        <Paragraph>一所为开放互联网而生的大学。老师与商家提交课程，经 Owner 审核后写入 Sepolia；学生用 USDC 兑换 YD、购买并完成学习，最终获得永久绑定钱包的 ERC721 结业证书。</Paragraph>
+        <div className="hero-actions">
+          <Button type="primary" onClick={() => document.getElementById('course-market')?.scrollIntoView({ behavior: 'smooth' })}>浏览课程 <ArrowRightOutlined /></Button>
+          <Button onClick={() => navigate('/creator')}>成为讲师</Button>
         </div>
-        <div className="hero-token">YD</div>
+        <div className="hero-stats">
+          <div><strong>{isLoading ? '—' : `${merged.length}+`}</strong><span>已发布课程</span><small>链上课程与线下内容绑定</small></div>
+          <div><strong>Sepolia</strong><span>以太坊测试链</span><small>课程、价格与购买关系可验证</small></div>
+          <div><strong>ERC721</strong><span>结业凭证</span><small>完成学习后永久绑定钱包</small></div>
+        </div>
       </section>
 
-      <Row gutter={[22, 22]} className="course-stats">
-        <Col xs={24} md={8}><Card bordered={false}><BookOutlined /><strong>{isLoading ? '…' : merged.length}</strong><span>精品 Web3 课程</span></Card></Col>
-        <Col xs={24} md={8}><Card bordered={false}><SwapOutlined /><strong>{isLoading ? '…' : merged[0] ? `${formatUnits(merged[0].price, 18)} YD` : '—'}</strong><span>当前课程价格</span></Card></Col>
-        <Col xs={24} md={8}><Card bordered={false}><SafetyCertificateOutlined /><strong>{isLoading ? '…' : certificateName || '—'}</strong><span>不可转让结业证书</span></Card></Col>
-      </Row>
-
-      <section id="course-market" className="market-section">
-        <div className="market-heading">
+      <section id="course-market">
+        <div className="published-heading">
           <div>
-            <Title level={1}>课程市场</Title>
-            <Text type="secondary">数据库承载丰富内容，Sepolia 合约记录价格、状态和购买关系。</Text>
+            <Title level={2}>已发布的课程</Title>
+            <Paragraph>从链上读取课程状态与 YD 价格，课程详情、视频和评论由数据库按 courseId 关联。</Paragraph>
           </div>
-          <Button className="teacher-button" icon={<UserAddOutlined />} onClick={() => navigate('/creator')}>申请成为老师</Button>
+          <Input.Search value={search} onChange={(event) => setSearch(event.target.value)} onSearch={(value) => navigate(value.trim() ? `/?q=${encodeURIComponent(value.trim())}` : '/')} prefix={<SearchOutlined />} placeholder="搜索课程..." enterButton="搜索" allowClear />
         </div>
-        {isLoading ? <div style={{ textAlign: 'center', padding: '60px 0' }}><Spin size="large" tip="加载课程中..." /></div> : merged.length === 0 ? <div style={{ padding: '60px 0' }}><Empty description="暂无课程" /></div> : (
-          <Row gutter={[24, 24]} style={{ marginTop: 24 }}>
-            {merged.map((course) => (
-              <Col key={course.id} xs={24} sm={12} lg={8}>
-                <Card hoverable className="course-card" cover={course.coverUrl ? <img alt={course.title} src={course.coverUrl} /> : <div className="course-cover">Web3</div>} onClick={() => navigate(`/course/${course.id}`)}>
-                  <Card.Meta title={course.title} description={<Space direction="vertical" size={5}>{course.description && <Paragraph ellipsis={{ rows: 2 }} style={{ margin: 0 }}>{course.description}</Paragraph>}<Tag color="purple">{formatUnits(course.price, 18)} YD</Tag></Space>} />
-                </Card>
-              </Col>
+
+        {isLoading ? <div className="page-state"><Spin size="large" /></div> : courses.length === 0 ? <div className="page-state"><Empty description={query ? `没有找到“${query}”相关课程` : '暂无已发布课程'} /></div> : (
+          <div className="academy-course-grid">
+            {courses.map((course, index) => (
+              <article className="academy-course-card" key={course.id} onClick={() => navigate(`/course/${course.id}`)}>
+                <div className="academy-card-cover">
+                  {course.coverUrl ? <img src={course.coverUrl} alt={course.title} /> : <div className="cover-placeholder">WEB3<br />ACADEMY</div>}
+                  <span>{index % 3 === 0 ? '进阶' : '入门'}</span>
+                </div>
+                <div className="academy-card-content">
+                  <div className="card-kicker"><span>WEB3 COURSE</span><span><StarOutlined /> 5.0</span></div>
+                  <h2>{course.title}</h2>
+                  <p>{course.description || '课程内容已通过链上指纹绑定，购买后即可进入学习。'}</p>
+                  <div className="instructor-row"><span className="instructor-avatar">{course.provider.slice(2, 4).toUpperCase()}</span><span>{`${course.provider.slice(0, 8)}...${course.provider.slice(-6)}`}</span></div>
+                  <div className="card-footer"><div><small>课程费用</small><strong>{formatUnits(course.price, 18)} YD</strong></div><Button>查看课程 <ArrowRightOutlined /></Button></div>
+                </div>
+              </article>
             ))}
-          </Row>
+          </div>
         )}
       </section>
     </div>

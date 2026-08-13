@@ -117,7 +117,10 @@ createRoot(rootEl).render(
         config={{
           loginMethods: ['wallet', 'email', 'google'],
           appearance: { theme: 'dark' },
-          embeddedWallets: { ethereum: { createOnLogin: 'users-without-wallets' } },
+          // Keep authentication and external-wallet connection separate. Email/Google
+          // login creates an authenticated account, but does not silently create/connect
+          // an embedded wallet; the user can connect one explicitly from the account panel.
+          embeddedWallets: { ethereum: { createOnLogin: 'off' } },
           supportedChains: [sepolia],
         }}
       >

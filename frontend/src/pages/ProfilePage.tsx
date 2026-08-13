@@ -51,7 +51,8 @@ const EIP712_TYPES = {
 
 export default function ProfilePage() {
   const { address } = useAccount();
-  const { authenticated } = usePrivy();
+  const { authenticated, user } = usePrivy();
+  const accountAddress = address ?? (user?.wallet?.address as `0x${string}` | undefined);
   const { signTypedData } = useSignTypedData();
   const queryClient = useQueryClient();
   const [editMode, setEditMode] = useState(false);
@@ -62,16 +63,16 @@ export default function ProfilePage() {
     address: YD_TOKEN_ADDRESS,
     abi: ydTokenAbi,
     functionName: 'balanceOf',
-    args: [address ?? '0x0000000000000000000000000000000000000000'],
-    query: { enabled: !!address },
+    args: [accountAddress ?? '0x0000000000000000000000000000000000000000'],
+    query: { enabled: !!accountAddress },
   });
 
   const { data: usdcBalance } = useReadContract({
     address: MOCK_USDC_ADDRESS,
     abi: mockUsdcAbi,
     functionName: 'balanceOf',
-    args: [address ?? '0x0000000000000000000000000000000000000000'],
-    query: { enabled: !!address },
+    args: [accountAddress ?? '0x0000000000000000000000000000000000000000'],
+    query: { enabled: !!accountAddress },
   });
 
   // Purchased course IDs from contract
@@ -79,21 +80,21 @@ export default function ProfilePage() {
     address: COURSE_MARKET_ADDRESS,
     abi: courseMarketAbi,
     functionName: 'getPurchasedCourses',
-    args: [address ?? '0x0000000000000000000000000000000000000000'],
-    query: { enabled: !!address },
+    args: [accountAddress ?? '0x0000000000000000000000000000000000000000'],
+    query: { enabled: !!accountAddress },
   });
 
   // User profile from backend
   const { data: profile, isLoading: profileLoading } = useQuery<UserProfile>({
-    queryKey: ['user-profile', address],
+    queryKey: ['user-profile', accountAddress],
     queryFn: async () => {
-      const res = await fetch(`${API_BASE}/api/users/${address}`);
+      const res = await fetch(`${API_BASE}/api/users/${accountAddress}`);
       if (!res.ok) throw new Error('获取用户资料失败');
       const json = await res.json() as { data: UserProfile };
       const raw = json.data as UserProfile & { avatarUrl?: string | null; updatedAt?: string };
       return { ...raw, avatar_url: raw.avatar_url ?? raw.avatarUrl ?? null, updated_at: raw.updated_at ?? raw.updatedAt ?? '' };
     },
-    enabled: !!address,
+    enabled: !!accountAddress,
     retry: 1,
   });
 
@@ -111,9 +112,9 @@ export default function ProfilePage() {
 
   // Certificate check per purchased course
   const { data: certResults } = useQuery<{ courseId: bigint; has: boolean }[]>({
-    queryKey: ['certificates', address, purchasedIds?.toString()],
+    queryKey: ['certificates', accountAddress, purchasedIds?.toString()],
     queryFn: async () => {
-      if (!address || !purchasedIds || purchasedIds.length === 0) return [];
+      if (!accountAddress || !purchasedIds || purchasedIds.length === 0) return [];
       // Read each certificate check individually via publicClient multicall
       const { createPublicClient, http } = await import('viem');
       const { sepolia } = await import('wagmi/chains');
@@ -126,7 +127,7 @@ export default function ProfilePage() {
           address: COURSE_CERTIFICATE_ADDRESS,
           abi: courseCertificateAbi,
           functionName: 'hasCertificate' as const,
-          args: [address, id] as [`0x${string}`, bigint],
+          args: [accountAddress, id] as [`0x${string}`, bigint],
         })),
       });
       return purchasedIds.map((id, i) => ({
@@ -134,14 +135,14 @@ export default function ProfilePage() {
         has: results[i].status === 'success' ? (results[i].result as boolean) : false,
       }));
     },
-    enabled: !!address && !!purchasedIds && purchasedIds.length > 0,
+    enabled: !!accountAddress && !!purchasedIds && purchasedIds.length > 0,
     retry: 1,
   });
 
   // Profile update mutation (EIP-712 signed)
   const updateMutation = useMutation({
     mutationFn: async (values: { username: string; avatar_url: string }) => {
-      if (!address) throw new Error('未连接钱包');
+      if (!accountAddress) throw new Error('账户尚未创建钱包');
 
       const timestamp = BigInt(Date.now());
       const signature = await signTypedData({
@@ -150,12 +151,12 @@ export default function ProfilePage() {
         primaryType: 'UpdateProfile',
         message: {
           action: 'updateProfile',
-          address: address as `0x${string}`,
+          address: accountAddress,
           timestamp,
         },
       });
 
-      const res = await fetch(`${API_BASE}/api/users/${address}`, {
+      const res = await fetch(`${API_BASE}/api/users/${accountAddress}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -171,7 +172,7 @@ export default function ProfilePage() {
     onSuccess: () => {
       message.success('资料更新成功');
       setEditMode(false);
-      void queryClient.invalidateQueries({ queryKey: ['user-profile', address] });
+      void queryClient.invalidateQueries({ queryKey: ['user-profile', accountAddress] });
     },
     onError: (err: Error) => {
       if (err.message.includes('User rejected') || err.message.includes('user rejected')) {
@@ -188,7 +189,7 @@ export default function ProfilePage() {
     });
   }, [form, updateMutation]);
 
-  if (!authenticated || !address) {
+  if (!authenticated) {
     return (
       <div style={{ maxWidth: 600, margin: '40px auto' }}>
         <Alert
@@ -202,7 +203,7 @@ export default function ProfilePage() {
   }
 
   const certificates = certResults?.filter((c) => c.has) ?? [];
-  const shortAddr = `${address.slice(0, 8)}...${address.slice(-6)}`;
+  const shortAddr = accountAddress ? `${accountAddress.slice(0, 8)}...${accountAddress.slice(-6)}` : '登录后创建钱包';
 
   return (
     <div style={{ maxWidth: 720, margin: '0 auto' }}>
