@@ -22,7 +22,6 @@ import {
   SafetyCertificateOutlined,
   SendOutlined,
   LockOutlined,
-  CheckCircleOutlined,
   UserOutlined,
   ClockCircleOutlined,
   ReadOutlined,
@@ -124,7 +123,7 @@ export default function CourseDetail() {
     query: { enabled: !!address && courseId > 0n },
   });
 
-  const { data: hasCertificate } = useReadContract({
+  const { data: _hasCertificate } = useReadContract({
     address: COURSE_CERTIFICATE_ADDRESS,
     abi: courseCertificateAbi,
     functionName: 'hasCertificate',
@@ -235,22 +234,35 @@ export default function CourseDetail() {
         <Alert type="warning" showIcon message="课程内容指纹与链上记录不一致，内容可能已被篡改" style={{ marginBottom: 16 }} banner />
       )}
 
-      {/* Hero Cover */}
-      <div style={{ position: 'relative', borderRadius: 14, overflow: 'hidden', marginBottom: 24 }}>
-        {backendDetail?.cover_url ? (
-          <img alt={title} src={backendDetail.cover_url} style={{ width: '100%', height: 260, objectFit: 'cover', display: 'block' }} />
+      {/* Top Video Player (replaces cover image) */}
+      <div style={{ borderRadius: 14, overflow: 'hidden', marginBottom: 24, background: '#000' }}>
+        {hasPurchased && embedUrl ? (
+          <div style={{ position: 'relative', width: '100%', paddingBottom: '56.25%' }}>
+            <iframe
+              src={embedUrl}
+              title="课程视频"
+              style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', border: 'none' }}
+              allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+              allowFullScreen
+            />
+          </div>
         ) : (
-          <div style={{ width: '100%', height: 260, background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-            <Title level={1} style={{ color: '#fff', margin: 0 }}>{title}</Title>
+          <div style={{ position: 'relative', width: '100%', paddingBottom: '56.25%', background: 'linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%)' }}>
+            <div style={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', color: '#fff' }}>
+              {!hasPurchased ? (
+                <>
+                  <LockOutlined style={{ fontSize: 48, marginBottom: 12, opacity: 0.7 }} />
+                  <Text style={{ color: '#ccc', fontSize: 15 }}>购买课程后解锁视频</Text>
+                </>
+              ) : (
+                <>
+                  <BookOutlined style={{ fontSize: 48, marginBottom: 12, opacity: 0.5 }} />
+                  <Text style={{ color: '#999', fontSize: 14 }}>视频加载中...</Text>
+                </>
+              )}
+            </div>
           </div>
         )}
-        <div style={{ position: 'absolute', bottom: 0, left: 0, right: 0, padding: '40px 24px 16px', background: 'linear-gradient(transparent, rgba(0,0,0,0.7))' }}>
-          <Space wrap>
-            {hasPurchased && <Tag color="green" icon={<CheckCircleOutlined />}>已购买</Tag>}
-            {hasCertificate && <Tag color="gold" icon={<SafetyCertificateOutlined />}>已获证书</Tag>}
-            {!course.active && <Tag color="red">已下架</Tag>}
-          </Space>
-        </div>
       </div>
 
       {/* Course Introduction Card */}
@@ -309,15 +321,14 @@ export default function CourseDetail() {
         </Card>
       )}
 
-      {/* Course Progress + Video */}
+      {/* Course Progress (purchased only) */}
       {hasPurchased && (
         <Card
           title={<span><PlaySquareOutlined style={{ marginRight: 8, color: '#7355f5' }} />课程进度</span>}
           style={{ marginBottom: 24, borderRadius: 12 }}
           styles={{ body: { padding: '24px 28px' } }}
         >
-          {/* Progress Bar */}
-          <div style={{ marginBottom: 20, padding: '14px 18px', background: '#f8f6ff', borderRadius: 10 }}>
+          <div style={{ padding: '14px 18px', background: '#f8f6ff', borderRadius: 10 }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
               <Text strong style={{ fontSize: 14 }}>学习进度</Text>
               <Text style={{ fontSize: 14, color: '#7355f5', fontWeight: 600 }}>{progressData?.progress ?? 0}%</Text>
@@ -349,25 +360,6 @@ export default function CourseDetail() {
               </Button>
             )}
           </div>
-
-          {/* Embedded Video Player */}
-          {embedUrl ? (
-            <div style={{ position: 'relative', width: '100%', paddingBottom: '56.25%', borderRadius: 10, overflow: 'hidden', background: '#000' }}>
-              <iframe
-                src={embedUrl}
-                title="课程视频"
-                style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', border: 'none' }}
-                allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-                allowFullScreen
-              />
-            </div>
-          ) : (
-            <div style={{ textAlign: 'center', padding: '40px 0', color: '#999', background: '#fafafa', borderRadius: 10 }}>
-              <BookOutlined style={{ fontSize: 36, marginBottom: 8, color: '#ccc' }} />
-              <br />
-              <Text type="secondary">视频加载中...</Text>
-            </div>
-          )}
         </Card>
       )}
 
