@@ -1,5 +1,5 @@
-import { useState } from 'react';
-import { Alert, Button, Card, Form, Input, InputNumber, Space, Typography, message } from 'antd';
+import { useEffect, useState } from 'react';
+import { Alert, Button, Card, Col, Form, Input, Row, Tag, Typography, message } from 'antd';
 import { useAccount } from 'wagmi';
 import { usePrivy, useSignTypedData } from '@privy-io/react-auth';
 
@@ -15,25 +15,50 @@ const EIP712_TYPES = {
   ],
 };
 
+const STATUS_LABELS: Record<string, { color: string; text: string }> = {
+  pending: { color: 'gold', text: '审核中' },
+  approved: { color: 'green', text: '已通过' },
+  rejected: { color: 'red', text: '已拒绝' },
+};
+
+interface CourseRequest {
+  id: number;
+  title: string;
+  status: string;
+  created_at: string;
+}
+
 export default function CreatorPage() {
   const { address } = useAccount();
-  const { authenticated } = usePrivy();
+  const { authenticated, user } = usePrivy();
+  const accountAddress = address ?? (user?.wallet?.address as `0x${string}` | undefined);
   const { signTypedData } = useSignTypedData();
   const [form] = Form.useForm();
   const [submitting, setSubmitting] = useState(false);
+  const [requests, setRequests] = useState<CourseRequest[]>([]);
+
+  useEffect(() => {
+    if (!accountAddress) return;
+    fetch(`${API_BASE}/api/course-requests?wallet=${accountAddress}`)
+      .then((r) => r.ok ? r.json() : null)
+      .then((json) => { if (json?.data) setRequests(json.data as CourseRequest[]); })
+      .catch(() => {});
+  }, [accountAddress]);
 
   const submit = async () => {
-    if (!authenticated || !address) {
-      message.info('请先使用 Privy 登录钱包');
-      return;
-    }
+    if (!authenticated) { message.info('请先登录账户'); return; }
+    if (!accountAddress) { message.info('课程提交需要先连接外部钱包'); return; }
+
     const values = await form.validateFields() as {
-      courseId: number;
       title: string;
+      summary: string;
       description: string;
+      category: string;
+      certificateName: string;
+      videoUrl: string;
       coverUrl: string;
-      videoUrls: string;
     };
+
     setSubmitting(true);
     try {
       const timestamp = Date.now();
@@ -41,22 +66,22 @@ export default function CreatorPage() {
         domain: EIP712_DOMAIN,
         types: EIP712_TYPES,
         primaryType: 'Action',
-        message: { action: 'submitCourse', address: address as `0x${string}`, timestamp: BigInt(timestamp) },
+        message: { action: 'submitCourse', address: accountAddress, timestamp: BigInt(timestamp) },
       });
-      const response = await fetch(`${API_BASE}/api/courses`, {
+      const response = await fetch(`${API_BASE}/api/course-requests`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          ...values,
-          videoUrls: values.videoUrls.split(/\r?\n|,/).map((item) => item.trim()).filter(Boolean),
-          address,
-          timestamp,
-          signature,
-        }),
+        body: JSON.stringify({ ...values, address: accountAddress, timestamp, signature }),
       });
       if (!response.ok) throw new Error('课程提交失败');
       message.success('课程申请已提交，等待 Owner 审核');
       form.resetFields();
+      // refresh list
+      const listResp = await fetch(`${API_BASE}/api/course-requests?wallet=${accountAddress}`);
+      if (listResp.ok) {
+        const json = await listResp.json() as { data: CourseRequest[] };
+        setRequests(json.data);
+      }
     } catch (error) {
       const text = error instanceof Error ? error.message : '课程提交失败';
       message.error(text.includes('rejected') ? '用户取消了签名' : text);
@@ -65,24 +90,79 @@ export default function CreatorPage() {
     }
   };
 
-  if (!authenticated || !address) {
-    return <Alert showIcon type="info" message="创作者中心" description="连接 Privy 钱包后，可提交课程申请并查看审核状态。" />;
+  if (!authenticated) {
+    return <Alert showIcon type="info" message="创作者中心" description="登录账户后可以查看课程申请入口。" />;
+  }
+  if (!accountAddress) {
+    return <Alert showIcon type="info" message="创作者中心" description="课程提交需要连接外部钱包；请在右上角账户菜单中连接钱包。" />;
   }
 
   return (
-    <div className="creator-page">
-      <Title level={2}>创作者中心</Title>
-      <Text type="secondary">老师 / 商家提交课程资料，由 Owner 上链审核后发布。</Text>
-      <Card title="提交课程申请" style={{ marginTop: 24, maxWidth: 760 }}>
-        <Form form={form} layout="vertical">
-          <Form.Item name="courseId" label="课程 ID" rules={[{ required: true, message: '请输入课程 ID' }]}><InputNumber min={1} style={{ width: '100%' }} /></Form.Item>
-          <Form.Item name="title" label="课程标题" rules={[{ required: true, message: '请输入课程标题' }]}><Input /></Form.Item>
-          <Form.Item name="description" label="课程简介" rules={[{ required: true, message: '请输入课程简介' }]}><Input.TextArea rows={4} /></Form.Item>
-          <Form.Item name="coverUrl" label="封面 URL" rules={[{ required: true, message: '请输入封面 URL' }]}><Input placeholder="https://..." /></Form.Item>
-          <Form.Item name="videoUrls" label="视频 URL（每行一个）" rules={[{ required: true, message: '请输入视频 URL' }]}><Input.TextArea rows={4} placeholder="https://..." /></Form.Item>
-          <Space><Button type="primary" loading={submitting} onClick={() => void submit()}>签名并提交</Button><Text type="secondary">提交后由 Owner 调用 CourseMarket.publishCourse</Text></Space>
-        </Form>
-      </Card>
-    </div>
+    <Row gutter={24} align="top">
+      {/* 左侧：提交表单 */}
+      <Col xs={24} lg={16}>
+        <Card title="提交课程资料" bordered={false}>
+          <Form form={form} layout="vertical" requiredMark="optional">
+            <Form.Item name="title" label="课程名称" rules={[{ required: true, message: '请输入课程名称' }]}>
+              <Input />
+            </Form.Item>
+            <Form.Item name="summary" label="一句话简介" rules={[{ required: true, message: '请输入简介' }]}>
+              <Input showCount maxLength={180} />
+            </Form.Item>
+            <Form.Item name="description" label="详细介绍" rules={[{ required: true, message: '请输入详细介绍' }]}>
+              <Input.TextArea rows={5} showCount maxLength={2000} />
+            </Form.Item>
+            <Row gutter={16}>
+              <Col span={12}>
+                <Form.Item name="category" label="分类" rules={[{ required: true, message: '请输入分类' }]}>
+                  <Input placeholder="Solidity / DeFi" />
+                </Form.Item>
+              </Col>
+              <Col span={12}>
+                <Form.Item name="certificateName" label="证书名称" rules={[{ required: true, message: '请输入证书名称' }]}>
+                  <Input />
+                </Form.Item>
+              </Col>
+            </Row>
+            <Form.Item name="videoUrl" label="视频 URL" rules={[{ required: true, message: '请输入视频 URL' }]}>
+              <Input placeholder="https://..." />
+            </Form.Item>
+            <Form.Item name="coverUrl" label="封面 URL" rules={[{ required: true, message: '请输入封面 URL' }]}>
+              <Input placeholder="https://..." />
+            </Form.Item>
+            <Button type="primary" loading={submitting} onClick={() => void submit()}>
+              签名并提交上架申请
+            </Button>
+          </Form>
+        </Card>
+      </Col>
+
+      {/* 右侧：我的课程申请 */}
+      <Col xs={24} lg={8}>
+        <Card title="我的课程申请" bordered={false}>
+          {requests.length === 0 ? (
+            <Text type="secondary" style={{ display: 'block', textAlign: 'center', padding: '32px 0' }}>
+              暂无申请
+            </Text>
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+              {requests.map((req) => (
+                <div key={req.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 0', borderBottom: '1px solid #f0f0f0' }}>
+                  <div>
+                    <div style={{ fontWeight: 500, fontSize: 14 }}>{req.title}</div>
+                    <div style={{ color: '#888', fontSize: 12, marginTop: 2 }}>
+                      {new Date(req.created_at).toLocaleDateString('zh-CN')}
+                    </div>
+                  </div>
+                  <Tag color={STATUS_LABELS[req.status]?.color ?? 'default'}>
+                    {STATUS_LABELS[req.status]?.text ?? req.status}
+                  </Tag>
+                </div>
+              ))}
+            </div>
+          )}
+        </Card>
+      </Col>
+    </Row>
   );
 }
