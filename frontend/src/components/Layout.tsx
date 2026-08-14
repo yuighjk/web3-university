@@ -146,7 +146,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
         <Avatar size={42} icon={<UserOutlined />} />
         <div>
           <strong>{accountName}</strong>
-          <span>{authenticated ? shortAddress : '尚未登录账户'}</span>
+          <span>{authenticated ? (accountAddress ? shortAddress : '钱包未连接') : '尚未登录账户'}</span>
         </div>
       </div>
       <button
@@ -158,6 +158,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
         <span><EditOutlined /> 昵称与头像</span>
         <strong>{authenticated ? '编辑 →' : '登录后编辑'}</strong>
       </button>
+      {!authenticated && <div className="account-login-note">登录后可修改昵称、查看个人学习记录</div>}
       <div className="account-balance-grid">
         <div className="balance-row"><span>YD 额度</span><strong>{ydBalance === undefined ? '--' : Number(formatUnits(ydBalance, 18)).toFixed(4)}</strong></div>
         <div className="balance-row"><span>USDC 余额</span><strong>{usdcBalance === undefined ? '--' : Number(formatUnits(usdcBalance, 6)).toFixed(2)}</strong></div>

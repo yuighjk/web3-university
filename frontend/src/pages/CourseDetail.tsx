@@ -311,7 +311,7 @@ export default function CourseDetail() {
               disabled={!address || !course.active}
               onClick={() => void buy(courseId, course.price)}
             >
-              {!address ? '请先登录' : isBuying ? '处理中...' : '立即购买'}
+              {!address ? '连接钱包后购买' : isBuying ? '处理中...' : '立即购买'}
             </Button>
           </Space>
         </Card>

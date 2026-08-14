@@ -214,8 +214,8 @@ export default function ProfilePage() {
         title="基本信息"
         extra={
           !editMode ? (
-            <Button size="small" onClick={() => { setEditMode(true); form.setFieldsValue(profile ?? {}); }}>
-              编辑资料
+            <Button size="small" disabled={!accountAddress} onClick={() => { setEditMode(true); form.setFieldsValue(profile ?? {}); }}>
+              {accountAddress ? '编辑资料' : '连接钱包后编辑'}
             </Button>
           ) : null
         }

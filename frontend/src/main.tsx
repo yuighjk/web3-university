@@ -116,11 +116,14 @@ createRoot(rootEl).render(
         appId={PRIVY_APP_ID}
         config={{
           loginMethods: ['wallet', 'email', 'google'],
-          appearance: { theme: 'dark' },
-          // Keep authentication and external-wallet connection separate. Email/Google
-          // login creates an authenticated account, but does not silently create/connect
-          // an embedded wallet; the user can connect one explicitly from the account panel.
-          embeddedWallets: { ethereum: { createOnLogin: 'off' } },
+          appearance: {
+            theme: 'dark',
+            walletList: ['metamask', 'coinbase_wallet', 'base_account'],
+          },
+          // Email/Google login receives a Privy embedded wallet for signing and
+          // course operations. It is intentionally displayed separately from an
+          // externally connected wallet in the account panel.
+          embeddedWallets: { ethereum: { createOnLogin: 'users-without-wallets' } },
           supportedChains: [sepolia],
         }}
       >

@@ -114,7 +114,7 @@ function AdminContent({ address, publicClient, walletClient, queryClient }: Admi
         items={[
           {
             key: 'providers',
-            label: 'Provider 管理',
+            label: '身份申请',
             children: (
               <ProviderTab
                 publicClient={publicClient}

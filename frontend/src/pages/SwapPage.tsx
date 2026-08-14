@@ -188,7 +188,7 @@ export default function SwapPage() {
   return (
     <div style={{ maxWidth: 480, margin: '0 auto' }}>
       <Title level={2}>代币兑换</Title>
-      <Text type="secondary">使用 MockUSDC 在 Uniswap V3 上兑换 YD 代币</Text>
+      <Text type="secondary">使用项目部署的 MockUSDC（界面简称 mUSDC）在 Uniswap V3 上兑换 YD 代币</Text>
 
       <Card style={{ marginTop: 24 }}>
         <Descriptions column={1} size="small" style={{ marginBottom: 16 }}>
@@ -199,10 +199,10 @@ export default function SwapPage() {
                 : '--'}
             </Tag>
           </Descriptions.Item>
-          <Descriptions.Item label="USDC 余额">
+          <Descriptions.Item label="mUSDC 余额">
             <Tag color="green">
               {usdcBalance !== undefined
-                ? `${Number(formatUnits(usdcBalance as bigint, 6)).toFixed(2)} USDC`
+                ? `${Number(formatUnits(usdcBalance as bigint, 6)).toFixed(2)} mUSDC`
                 : '--'}
             </Tag>
           </Descriptions.Item>
@@ -211,32 +211,35 @@ export default function SwapPage() {
         <Divider />
 
         <Space direction="vertical" style={{ width: '100%', marginBottom: 16 }}>
-          <Text strong>测试水龙头</Text>
+          <Text strong>mUSDC 测试水龙头</Text>
+          <Text type="secondary" style={{ fontSize: 11 }}>
+            mUSDC 是本项目在 Sepolia 部署的 MockUSDC 测试 ERC-20，不是真实 USDC 或 USDT，仅用于完成兑换流程演示。
+          </Text>
           <Button
             onClick={() => void handleFaucet()}
             loading={faucetLoading}
             disabled={!address}
           >
-            领取 1,000 USDC
+            领取 1,000 mUSDC
           </Button>
         </Space>
 
         <Divider />
 
         <Space direction="vertical" style={{ width: '100%' }} size={12}>
-          <Text strong>USDC → YD 兑换</Text>
+          <Text strong>mUSDC → YD 兑换</Text>
 
           <div>
             <Text type="secondary" style={{ fontSize: 12 }}>
-              输入 USDC 数量
+              输入 mUSDC 数量
             </Text>
             <InputNumber
               value={usdcAmount}
               onChange={(v) => setUsdcAmount(v?.toString() ?? '')}
-              placeholder="输入 USDC 数量"
+              placeholder="输入 mUSDC 数量"
               min="0"
               style={{ width: '100%' }}
-              addonAfter="USDC"
+              addonAfter="mUSDC"
               stringMode
             />
           </div>
@@ -276,8 +279,9 @@ export default function SwapPage() {
 
         <Divider />
         <Text type="secondary" style={{ fontSize: 11 }}>
-          注意：测试网络使用 MockUSDC。兑换路径：USDC → YD，手续费 0.3%。
-          amountOutMinimum 在测试网设为 0，生产环境需加价格预言机保护。
+          兑换路径：mUSDC → YD，使用 Sepolia Uniswap V3 的 YD / MockUSDC 池，手续费 0.3%。
+          1 YD = 1 USDC 是建池时的参考初始价格，之后实际价格由池子的流动性和 AMM 交易决定，并非固定汇率。
+          当前测试网为便于演示将 amountOutMinimum 设为 0，正式环境应加入滑点保护。
         </Text>
       </Card>
     </div>
