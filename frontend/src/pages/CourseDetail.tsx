@@ -18,13 +18,15 @@ import {
   Typography,
 } from 'antd';
 import {
-  PlayCircleOutlined,
+  BookOutlined,
   SafetyCertificateOutlined,
   SendOutlined,
   LockOutlined,
   CheckCircleOutlined,
   UserOutlined,
   ClockCircleOutlined,
+  ReadOutlined,
+  PlaySquareOutlined,
 } from '@ant-design/icons';
 import { formatUnits, keccak256, encodePacked } from 'viem';
 
@@ -71,6 +73,27 @@ function verifyContentHash(
   }
 }
 
+/** Convert YouTube watch URL to embed URL */
+function toEmbedUrl(url: string): string | null {
+  try {
+    const u = new URL(url);
+    if (u.hostname.includes('youtube.com') && u.searchParams.has('v')) {
+      return `https://www.youtube.com/embed/${u.searchParams.get('v')}`;
+    }
+    if (u.hostname === 'youtu.be') {
+      return `https://www.youtube.com/embed${u.pathname}`;
+    }
+    if (u.hostname.includes('bilibili.com')) {
+      const bv = u.pathname.match(/\/(BV[\w]+)/)?.[1];
+      if (bv) return `https://player.bilibili.com/player.html?bvid=${bv}&high_quality=1`;
+    }
+    // Direct mp4 or other embed-friendly URL
+    return url;
+  } catch {
+    return url;
+  }
+}
+
 export default function CourseDetail() {
   const { id } = useParams<{ id: string }>();
   const { address } = useAccount();
@@ -81,7 +104,6 @@ export default function CourseDetail() {
   const [commenting, setCommenting] = useState(false);
   const courseId = BigInt(id ?? '0');
 
-  // On-chain course data
   const {
     data: onChainCourse,
     isLoading: chainLoading,
@@ -94,7 +116,6 @@ export default function CourseDetail() {
     query: { enabled: courseId > 0n },
   });
 
-  // Has user purchased?
   const { data: hasPurchased, refetch: refetchPurchased } = useReadContract({
     address: COURSE_MARKET_ADDRESS,
     abi: courseMarketAbi,
@@ -103,7 +124,6 @@ export default function CourseDetail() {
     query: { enabled: !!address && courseId > 0n },
   });
 
-  // Has user got a certificate?
   const { data: hasCertificate } = useReadContract({
     address: COURSE_CERTIFICATE_ADDRESS,
     abi: courseCertificateAbi,
@@ -112,7 +132,6 @@ export default function CourseDetail() {
     query: { enabled: !!address && courseId > 0n },
   });
 
-  // Backend course detail
   const { data: backendDetail, isLoading: backendLoading } = useQuery<BackendCourseDetail>({
     queryKey: ['course-detail', id],
     queryFn: async () => {
@@ -125,7 +144,6 @@ export default function CourseDetail() {
     retry: 1,
   });
 
-  // Video list — only fetched when user has purchased
   const { data: videos } = useQuery<string[]>({
     queryKey: ['course-videos', id, address],
     queryFn: async () => {
@@ -160,21 +178,26 @@ export default function CourseDetail() {
   });
 
   const submitComment = async () => {
-    if (!address || !authenticated || !comment.trim() || !externalWallet) return;
+    if (!address || !authenticated || !comment.trim()) return;
     setCommenting(true);
     try {
+      let signature: `0x${string}` | undefined;
       const timestamp = Date.now();
-      const signature = await signAction(externalWallet, 'postComment', timestamp);
+      if (externalWallet) {
+        signature = await signAction(externalWallet, 'postComment', timestamp);
+      }
       const res = await fetch(`${API_BASE}/api/courses/${id}/comments`, {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ content: comment.trim(), address, timestamp, signature }),
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ content: comment.trim(), address, timestamp, signature: signature ?? '0x' }),
       });
       if (!res.ok) throw new Error('评论需要购买课程后才能发布');
       setComment('');
       message.success('评论发布成功');
       void refetchComments();
     } catch (error) {
-      message.error(error instanceof Error ? error.message : '评论发布失败');
+      const msg = error instanceof Error ? error.message : '评论发布失败';
+      message.error(msg.includes('rejected') ? '用户取消了签名' : msg);
     } finally {
       setCommenting(false);
     }
@@ -192,11 +215,7 @@ export default function CourseDetail() {
   const contentHashValid = backendDetail && course ? verifyContentHash(backendDetail, course.contentHash) : null;
 
   if (isLoading) {
-    return (
-      <div style={{ textAlign: 'center', padding: '80px 0' }}>
-        <Spin size="large" />
-      </div>
-    );
+    return <div style={{ textAlign: 'center', padding: '80px 0' }}><Spin size="large" /></div>;
   }
 
   if (!course || course.id === 0n) {
@@ -207,34 +226,25 @@ export default function CourseDetail() {
   const title = backendDetail?.title ?? '课程';
   const description = backendDetail?.description ?? '';
   const providerShort = `${course.provider.slice(0, 6)}...${course.provider.slice(-4)}`;
+  const videoUrl = videos?.[0];
+  const embedUrl = videoUrl ? toEmbedUrl(videoUrl) : null;
 
   return (
     <div style={{ maxWidth: 860, margin: '0 auto' }}>
-      {/* Content hash integrity warning */}
       {contentHashValid === false && (
-        <Alert
-          type="warning"
-          showIcon
-          message="课程内容指纹与链上记录不一致，内容可能已被篡改"
-          style={{ marginBottom: 16 }}
-          banner
-        />
+        <Alert type="warning" showIcon message="课程内容指纹与链上记录不一致，内容可能已被篡改" style={{ marginBottom: 16 }} banner />
       )}
 
-      {/* Hero Section */}
-      <div style={{ position: 'relative', borderRadius: 16, overflow: 'hidden', marginBottom: 24 }}>
+      {/* Hero Cover */}
+      <div style={{ position: 'relative', borderRadius: 14, overflow: 'hidden', marginBottom: 24 }}>
         {backendDetail?.cover_url ? (
-          <img
-            alt={title}
-            src={backendDetail.cover_url}
-            style={{ width: '100%', height: 280, objectFit: 'cover', display: 'block' }}
-          />
+          <img alt={title} src={backendDetail.cover_url} style={{ width: '100%', height: 260, objectFit: 'cover', display: 'block' }} />
         ) : (
-          <div style={{ width: '100%', height: 280, background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <div style={{ width: '100%', height: 260, background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
             <Title level={1} style={{ color: '#fff', margin: 0 }}>{title}</Title>
           </div>
         )}
-        <div style={{ position: 'absolute', bottom: 0, left: 0, right: 0, padding: '40px 28px 20px', background: 'linear-gradient(transparent, rgba(0,0,0,0.7))' }}>
+        <div style={{ position: 'absolute', bottom: 0, left: 0, right: 0, padding: '40px 24px 16px', background: 'linear-gradient(transparent, rgba(0,0,0,0.7))' }}>
           <Space wrap>
             {hasPurchased && <Tag color="green" icon={<CheckCircleOutlined />}>已购买</Tag>}
             {hasCertificate && <Tag color="gold" icon={<SafetyCertificateOutlined />}>已获证书</Tag>}
@@ -243,9 +253,13 @@ export default function CourseDetail() {
         </div>
       </div>
 
-      {/* Course Info */}
-      <Card style={{ marginBottom: 24, borderRadius: 12 }} styles={{ body: { padding: '28px 32px' } }}>
-        <Title level={2} style={{ marginBottom: 8 }}>{title}</Title>
+      {/* Course Introduction Card */}
+      <Card
+        title={<span><ReadOutlined style={{ marginRight: 8, color: '#7355f5' }} />课程介绍</span>}
+        style={{ marginBottom: 24, borderRadius: 12 }}
+        styles={{ body: { padding: '24px 28px' } }}
+      >
+        <Title level={3} style={{ marginBottom: 12 }}>{title}</Title>
 
         <Space style={{ marginBottom: 16 }} wrap>
           <Tag color="purple" style={{ fontSize: 13, padding: '2px 10px' }}>{formatUnits(course.price, 18)} YD</Tag>
@@ -265,25 +279,21 @@ export default function CourseDetail() {
 
       {/* Purchase Section */}
       {!hasPurchased && (
-        <Card style={{ marginBottom: 24, borderRadius: 12, border: '1px solid #e8dff5' }} styles={{ body: { padding: '24px 32px' } }}>
+        <Card style={{ marginBottom: 24, borderRadius: 12, border: '1px solid #e8dff5' }} styles={{ body: { padding: '24px 28px' } }}>
           <Space direction="vertical" size={16} style={{ width: '100%' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
               <LockOutlined style={{ fontSize: 20, color: '#7355f5' }} />
               <div>
                 <Text strong style={{ fontSize: 15 }}>购买课程解锁完整内容</Text>
                 <br />
-                <Text type="secondary" style={{ fontSize: 13 }}>
-                  购买后可查看课程视频、参与评论，完成学习可获得链上证书
-                </Text>
+                <Text type="secondary" style={{ fontSize: 13 }}>购买后可观看课程视频、参与讨论，完成学习可获得链上证书</Text>
               </div>
             </div>
 
             {step !== 'idle' && step !== 'error' && (
               <Steps current={getBuyStepIndex(step)} items={BUY_STEPS} size="small" />
             )}
-            {step === 'error' && (
-              <Alert type="error" message="购买失败，请重试" showIcon />
-            )}
+            {step === 'error' && <Alert type="error" message="购买失败，请重试" showIcon />}
 
             <Button
               type="primary"
@@ -299,25 +309,25 @@ export default function CourseDetail() {
         </Card>
       )}
 
-      {/* Video Section */}
+      {/* Course Progress + Video */}
       {hasPurchased && (
         <Card
-          title={<span><PlayCircleOutlined style={{ marginRight: 8 }} />课程视频</span>}
+          title={<span><PlaySquareOutlined style={{ marginRight: 8, color: '#7355f5' }} />课程进度</span>}
           style={{ marginBottom: 24, borderRadius: 12 }}
-          styles={{ body: { padding: '20px 24px' } }}
+          styles={{ body: { padding: '24px 28px' } }}
         >
-          {/* Learning Progress */}
-          <div style={{ marginBottom: 20, padding: '12px 16px', background: '#f8f6ff', borderRadius: 8 }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
-              <Text strong style={{ fontSize: 13 }}>学习进度</Text>
-              <Text type="secondary" style={{ fontSize: 13 }}>{progressData?.progress ?? 0}%</Text>
+          {/* Progress Bar */}
+          <div style={{ marginBottom: 20, padding: '14px 18px', background: '#f8f6ff', borderRadius: 10 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
+              <Text strong style={{ fontSize: 14 }}>学习进度</Text>
+              <Text style={{ fontSize: 14, color: '#7355f5', fontWeight: 600 }}>{progressData?.progress ?? 0}%</Text>
             </div>
-            <Progress percent={progressData?.progress ?? 0} strokeColor="#7355f5" showInfo={false} />
+            <Progress percent={progressData?.progress ?? 0} strokeColor="#7355f5" showInfo={false} size={{ height: 8 }} />
             {(progressData?.progress ?? 0) < 100 && (
               <Button
                 size="small"
                 type="link"
-                style={{ padding: 0, marginTop: 4, fontSize: 12 }}
+                style={{ padding: 0, marginTop: 8, fontSize: 12 }}
                 onClick={async () => {
                   if (!address || !externalWallet) return;
                   try {
@@ -340,52 +350,33 @@ export default function CourseDetail() {
             )}
           </div>
 
-          {videos && videos.length > 0 ? (
-            <List
-              dataSource={videos}
-              renderItem={(url, index) => (
-                <List.Item
-                  style={{ padding: '12px 0' }}
-                  actions={[
-                    <Button
-                      key="play"
-                      type="primary"
-                      ghost
-                      size="small"
-                      icon={<PlayCircleOutlined />}
-                      href={url}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                    >
-                      播放
-                    </Button>,
-                  ]}
-                >
-                  <List.Item.Meta
-                    avatar={<div style={{ width: 32, height: 32, borderRadius: 8, background: '#f0ecff', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#7355f5', fontWeight: 600 }}>{index + 1}</div>}
-                    title={<Text style={{ fontSize: 14 }}>第 {index + 1} 节</Text>}
-                    description={<Text type="secondary" style={{ fontSize: 12 }}>{url.length > 60 ? url.slice(0, 60) + '...' : url}</Text>}
-                  />
-                </List.Item>
-              )}
-            />
+          {/* Embedded Video Player */}
+          {embedUrl ? (
+            <div style={{ position: 'relative', width: '100%', paddingBottom: '56.25%', borderRadius: 10, overflow: 'hidden', background: '#000' }}>
+              <iframe
+                src={embedUrl}
+                title="课程视频"
+                style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', border: 'none' }}
+                allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                allowFullScreen
+              />
+            </div>
           ) : (
-            <div style={{ textAlign: 'center', padding: '24px 0', color: '#999' }}>
-              <PlayCircleOutlined style={{ fontSize: 32, marginBottom: 8 }} />
+            <div style={{ textAlign: 'center', padding: '40px 0', color: '#999', background: '#fafafa', borderRadius: 10 }}>
+              <BookOutlined style={{ fontSize: 36, marginBottom: 8, color: '#ccc' }} />
               <br />
-              <Text type="secondary">视频内容加载中...</Text>
+              <Text type="secondary">视频加载中...</Text>
             </div>
           )}
         </Card>
       )}
 
-      {/* Comments Section */}
+      {/* Comments / Discussion Section */}
       <Card
-        title={<span>💬 学员评论 ({comments?.length ?? 0})</span>}
+        title={<span><SendOutlined style={{ marginRight: 8, color: '#7355f5' }} />学员讨论 ({comments?.length ?? 0})</span>}
         style={{ borderRadius: 12 }}
-        styles={{ body: { padding: '20px 24px' } }}
+        styles={{ body: { padding: '20px 28px' } }}
       >
-        {/* Comment Input */}
         {hasPurchased ? (
           <div style={{ marginBottom: 16 }}>
             <Input.TextArea
@@ -394,24 +385,30 @@ export default function CourseDetail() {
               placeholder="分享你的学习心得..."
               maxLength={2000}
               rows={3}
-              style={{ borderRadius: 8, marginBottom: 8 }}
+              style={{ borderRadius: 8, marginBottom: 10 }}
             />
             <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
               <Button
                 type="primary"
-                icon={<SendOutlined />}
                 loading={commenting}
                 disabled={!comment.trim()}
                 onClick={() => void submitComment()}
-                size="small"
+                style={{
+                  borderRadius: 20,
+                  paddingInline: 20,
+                  opacity: !comment.trim() ? 0.5 : 1,
+                  color: !comment.trim() ? '#999' : '#fff',
+                  background: !comment.trim() ? '#e8e8e8' : undefined,
+                  borderColor: !comment.trim() ? '#e8e8e8' : undefined,
+                }}
               >
-                发布评论
+                发送
               </Button>
             </div>
           </div>
         ) : (
           <Alert
-            message="购买课程后可参与评论"
+            message="购买课程后可参与讨论"
             type="info"
             showIcon
             style={{ marginBottom: 16, borderRadius: 8 }}
@@ -424,30 +421,30 @@ export default function CourseDetail() {
           <List
             dataSource={comments}
             renderItem={(item) => (
-              <List.Item style={{ padding: '12px 0', border: 'none' }}>
+              <List.Item style={{ padding: '14px 0', border: 'none' }}>
                 <List.Item.Meta
                   avatar={
-                    <div style={{ width: 32, height: 32, borderRadius: '50%', background: '#e8e0ff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12, color: '#7355f5', fontWeight: 600 }}>
+                    <div style={{ width: 36, height: 36, borderRadius: '50%', background: '#f0ecff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 13, color: '#7355f5', fontWeight: 600 }}>
                       {item.user_address.slice(2, 4).toUpperCase()}
                     </div>
                   }
                   title={
                     <Space>
-                      <Text style={{ fontSize: 12, color: '#666' }}>{item.user_address.slice(0, 6)}...{item.user_address.slice(-4)}</Text>
+                      <Text style={{ fontSize: 13, color: '#333' }}>{item.user_address.slice(0, 6)}...{item.user_address.slice(-4)}</Text>
                       <Text type="secondary" style={{ fontSize: 11 }}>
                         <ClockCircleOutlined style={{ marginRight: 3 }} />
                         {new Date(item.created_at).toLocaleDateString('zh-CN')}
                       </Text>
                     </Space>
                   }
-                  description={<Text style={{ fontSize: 14, color: '#333' }}>{item.content}</Text>}
+                  description={<Text style={{ fontSize: 14, color: '#444', lineHeight: 1.6 }}>{item.content}</Text>}
                 />
               </List.Item>
             )}
           />
         ) : (
-          <div style={{ textAlign: 'center', padding: '20px 0', color: '#999' }}>
-            <Text type="secondary">暂无评论，快来发表你的看法吧</Text>
+          <div style={{ textAlign: 'center', padding: '24px 0', color: '#aaa' }}>
+            <Text type="secondary">暂无讨论，购买课程后来分享你的学习心得吧</Text>
           </div>
         )}
       </Card>
