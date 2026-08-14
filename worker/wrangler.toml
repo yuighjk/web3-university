@@ -10,5 +10,5 @@ database_id = "placeholder-replace-after-wrangler-d1-create"
 
 [vars]
 # Public vars (non-sensitive). Sensitive values use: wrangler secret put
-# COURSE_MARKET_ADDRESS = "0x..."
-# SEPOLIA_RPC_URL = "https://..."
+COURSE_MARKET_ADDRESS = "0x6Fc7a078C8d18CF9b339c4509926D9d9eAd5ed61"
+SEPOLIA_RPC_URL = "https://ethereum-sepolia-rpc.publicnode.com"
