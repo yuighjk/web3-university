@@ -84,12 +84,22 @@ export const ydTokenAbi = [
 // ── MockUSDC (ERC-20 with faucet, 6 decimals) ───────────────────────────────
 export const mockUsdcAbi = [
   ...ydTokenAbi,
+] as const;
+
+export const testTokenFaucetAbi = [
   {
     type: 'function',
-    name: 'faucet',
-    inputs: [{ name: 'amount', type: 'uint256' }],
+    name: 'claim',
+    inputs: [{ name: 'claimYD', type: 'bool' }],
     outputs: [],
     stateMutability: 'nonpayable',
+  },
+  {
+    type: 'function',
+    name: 'lastClaimAt',
+    inputs: [{ name: 'account', type: 'address' }],
+    outputs: [{ type: 'uint256' }],
+    stateMutability: 'view',
   },
 ] as const;
 

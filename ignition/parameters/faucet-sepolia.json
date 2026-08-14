@@ -1,0 +1,6 @@
+{
+  "FaucetModule": {
+    "mockUSDCAddress": "0x4EFa7bE027290088B0F1d5Ad4D4387dF7FB5d00C",
+    "ydTokenAddress": "0xe02Df92AFa6238a609F26FBe5b01676791C6377a"
+  }
+}

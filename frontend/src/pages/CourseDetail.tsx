@@ -71,16 +71,21 @@ function verifyContentHash(
   detail: BackendCourseDetail,
   onChainHash: `0x${string}`,
 ): boolean {
-  const videoHashesJoined = detail.video_urls
-    .map((url) => keccak256(encodePacked(['string'], [url])))
-    .join(',');
-  const computed = keccak256(
-    encodePacked(
-      ['string', 'string', 'string', 'string'],
-      [detail.title, detail.description, videoHashesJoined, keccak256(encodePacked(['string'], [detail.cover_url]))],
-    ),
-  );
-  return computed === onChainHash;
+  try {
+    const videoUrls = detail.video_urls ?? [];
+    const videoHashesJoined = videoUrls
+      .map((url) => keccak256(encodePacked(['string'], [url])))
+      .join(',');
+    const computed = keccak256(
+      encodePacked(
+        ['string', 'string', 'string', 'string'],
+        [detail.title, detail.description, videoHashesJoined, keccak256(encodePacked(['string'], [detail.cover_url]))],
+      ),
+    );
+    return computed === onChainHash;
+  } catch {
+    return false;
+  }
 }
 
 export default function CourseDetail() {

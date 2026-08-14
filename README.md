@@ -115,6 +115,9 @@ npx hardhat ignition deploy ./ignition/modules/AllContracts.ts --network localho
 
 # 终端 3: 启动前端
 cd frontend && npm run dev
+
+# 终端 4: 启动 Worker 后端：
+cd worker && npm run dev
 ```
 
 ### 部署到 Sepolia

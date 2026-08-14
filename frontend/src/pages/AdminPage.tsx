@@ -16,12 +16,15 @@ import {
   Tag,
   Typography,
 } from 'antd';
+import { createPublicClient, custom } from 'viem';
 import { waitForTransactionReceipt } from 'viem/actions';
-import { useSignTypedData } from '@privy-io/react-auth';
+import { sepolia } from 'viem/chains';
+import { useWallets } from '@privy-io/react-auth';
 
 import { courseMarketAbi, courseCertificateAbi } from '@/contracts/abis';
 import { COURSE_MARKET_ADDRESS, COURSE_CERTIFICATE_ADDRESS } from '@/contracts/addresses';
 import type { BackendCourse } from '@/types';
+import { signAction } from '@/utils/signAction';
 
 const { Title, Text } = Typography;
 const API_BASE = import.meta.env.VITE_API_BASE_URL || '';
@@ -255,14 +258,25 @@ function ProviderTab({ publicClient, walletClient, queryClient }: TabProps) {
 
 interface PendingCourse extends BackendCourse {
   content_hash: string;
+  certificate_name?: string;
 }
+
+type ApprovalStage = 'checking' | 'authorizing' | 'publishing' | 'syncing';
+
+const APPROVAL_STAGE_LABELS: Record<ApprovalStage, string> = {
+  checking: '检查链上状态…',
+  authorizing: '确认讲师授权…',
+  publishing: '确认课程上架…',
+  syncing: '同步审批状态…',
+};
 
 function CourseApprovalTab({ publicClient, walletClient, queryClient }: TabProps) {
   const [loadingId, setLoadingId] = useState<number | null>(null);
-  const { signTypedData } = useSignTypedData();
+  const [approvalStage, setApprovalStage] = useState<ApprovalStage>('checking');
+  const { wallets } = useWallets();
   const { address } = useAccount();
 
-  const { data: pendingCourses, isLoading } = useQuery<PendingCourse[]>({
+  const { data: pendingCourses, isLoading, isError, error, refetch } = useQuery<PendingCourse[]>({
     queryKey: ['pending-courses'],
     queryFn: async () => {
       const res = await fetch(`${API_BASE}/api/courses?status=pending`);
@@ -277,46 +291,86 @@ function CourseApprovalTab({ publicClient, walletClient, queryClient }: TabProps
     async (course: PendingCourse) => {
       if (!publicClient || !walletClient) return;
       setLoadingId(course.course_id);
+      setApprovalStage('checking');
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const wc = walletClient as any;
       try {
-        const price = BigInt('1000000000000000000'); // 1 YD placeholder
+        const price = BigInt('4000000000000000000'); // 作业要求：4 YD
+        if (!address) throw new Error('未连接 Owner 钱包');
+        const signingWallet = wallets.find(
+          (wallet) => wallet.address.toLowerCase() === address.toLowerCase(),
+        );
+        if (!signingWallet) throw new Error('Owner 钱包连接已失效，请重新连接');
+        const walletProvider = await signingWallet.getEthereumProvider();
+        const walletPublicClient = createPublicClient({
+          chain: sepolia,
+          transport: custom(walletProvider),
+        });
 
-        const hash = (await wc.writeContract({
+        const providerType = await publicClient.readContract({
           address: COURSE_MARKET_ADDRESS,
           abi: courseMarketAbi,
-          functionName: 'publishCourse',
-          args: [
-            BigInt(course.course_id),
-            course.provider_address as `0x${string}`,
-            `${API_BASE}/api/courses/${course.course_id}`,
-            course.content_hash as `0x${string}`,
-            `${course.title} 证书`,
-            price,
-          ],
-        })) as `0x${string}`;
-        await waitForTransactionReceipt(publicClient, { hash });
-
-        const timestamp = Date.now();
-        if (!address) throw new Error('未连接 Owner 钱包');
-        const signature = await signTypedData({
-          domain: { name: 'Web3University', version: '1', chainId: 11155111 },
-          types: { Action: [
-            { name: 'action', type: 'string' },
-            { name: 'address', type: 'address' },
-            { name: 'timestamp', type: 'uint256' },
-          ] },
-          primaryType: 'Action',
-          message: { action: 'updateCourseStatus', address: address as `0x${string}`, timestamp: BigInt(timestamp) },
+          functionName: 'providers',
+          args: [course.provider_address as `0x${string}`],
         });
-        await fetch(`${API_BASE}/api/courses/${course.course_id}/status`, {
+
+        if (providerType === 0) {
+          setApprovalStage('authorizing');
+          message.info('第 1/2 步：请确认讲师授权；确认后会自动继续课程上架');
+          const providerHash = (await wc.writeContract({
+            address: COURSE_MARKET_ADDRESS,
+            abi: courseMarketAbi,
+            functionName: 'setProvider',
+            args: [course.provider_address as `0x${string}`, 1],
+          })) as `0x${string}`;
+          const receipt = await walletPublicClient.waitForTransactionReceipt({ hash: providerHash });
+          if (receipt.status !== 'success') throw new Error('讲师授权交易执行失败');
+        }
+
+        const onChainCourse = await publicClient.readContract({
+          address: COURSE_MARKET_ADDRESS,
+          abi: courseMarketAbi,
+          functionName: 'getCourse',
+          args: [BigInt(course.course_id)],
+        });
+        if (onChainCourse.id === 0n) {
+          setApprovalStage('publishing');
+          message.info(providerType === 0
+            ? '第 2/2 步：讲师授权已完成，请确认课程上架'
+            : '请在钱包中确认课程上架');
+          const hash = (await wc.writeContract({
+            address: COURSE_MARKET_ADDRESS,
+            abi: courseMarketAbi,
+            functionName: 'publishCourse',
+            args: [
+              BigInt(course.course_id),
+              course.provider_address as `0x${string}`,
+              `${API_BASE}/api/courses/${course.course_id}`,
+              course.content_hash as `0x${string}`,
+              course.certificate_name || `${course.title} 证书`,
+              price,
+            ],
+          })) as `0x${string}`;
+          const receipt = await walletPublicClient.waitForTransactionReceipt({ hash });
+          if (receipt.status !== 'success') throw new Error('课程上架交易执行失败');
+        }
+
+        setApprovalStage('syncing');
+        const timestamp = Date.now();
+        const signature = await signAction(signingWallet, 'updateCourseStatus', timestamp);
+        const statusResponse = await fetch(`${API_BASE}/api/courses/${course.course_id}/status`, {
           method: 'PATCH',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ status: 'published', address, timestamp, signature }),
         });
+        if (!statusResponse.ok) {
+          const payload = await statusResponse.json().catch(() => null) as { error?: string } | null;
+          throw new Error(payload?.error || '链上已上架，但数据库状态同步失败');
+        }
 
         message.success(`课程 "${course.title}" 已上架`);
-        queryClient?.invalidateQueries({ queryKey: ['pending-courses'] });
+        await queryClient?.invalidateQueries({ queryKey: ['pending-courses'] });
+        await queryClient?.invalidateQueries({ queryKey: ['backend-courses'] });
       } catch (err: unknown) {
         const msg = err instanceof Error ? err.message : '操作失败';
         if (msg.includes('User rejected') || msg.includes('user rejected')) {
@@ -328,7 +382,7 @@ function CourseApprovalTab({ publicClient, walletClient, queryClient }: TabProps
         setLoadingId(null);
       }
     },
-    [publicClient, walletClient, queryClient, signTypedData, address],
+    [publicClient, walletClient, queryClient, address, wallets],
   );
 
   const columns = [
@@ -358,13 +412,24 @@ function CourseApprovalTab({ publicClient, walletClient, queryClient }: TabProps
           loading={loadingId === record.course_id}
           onClick={() => void handlePublish(record)}
         >
-          审批上架
+          {loadingId === record.course_id ? APPROVAL_STAGE_LABELS[approvalStage] : '审批上架'}
         </Button>
       ),
     },
   ];
 
   if (isLoading) return <Spin />;
+  if (isError) {
+    return (
+      <Alert
+        type="error"
+        showIcon
+        message="待审批课程加载失败"
+        description={error instanceof Error ? error.message : '请确认 Worker 和 D1 已启动'}
+        action={<Button size="small" onClick={() => void refetch()}>重新加载</Button>}
+      />
+    );
+  }
 
   return (
     <Table

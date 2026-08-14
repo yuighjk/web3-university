@@ -22,7 +22,7 @@ export interface BackendCourse {
 }
 
 export interface BackendCourseDetail extends BackendCourse {
-  video_urls: string[];
+  video_urls?: string[];
 }
 
 export interface MergedCourse {

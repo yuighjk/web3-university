@@ -1,19 +1,13 @@
 import { useEffect, useState } from 'react';
 import { Alert, Button, Card, Col, Form, Input, Row, Tag, Typography, message } from 'antd';
-import { useAccount } from 'wagmi';
-import { usePrivy, useSignTypedData } from '@privy-io/react-auth';
+import { usePrivy, useWallets } from '@privy-io/react-auth';
 
-const { Title, Text } = Typography;
+import { signAction } from '@/utils/signAction';
+
+const { Text } = Typography;
 const API_BASE = import.meta.env.VITE_API_BASE_URL || '';
 
-const EIP712_DOMAIN = { name: 'Web3University', version: '1', chainId: 11155111 } as const;
-const EIP712_TYPES = {
-  Action: [
-    { name: 'action', type: 'string' },
-    { name: 'address', type: 'address' },
-    { name: 'timestamp', type: 'uint256' },
-  ],
-};
+const DRAFT_STORAGE_KEY = 'web3-university:creator-course-draft';
 
 const STATUS_LABELS: Record<string, { color: string; text: string }> = {
   pending: { color: 'gold', text: '审核中' },
@@ -23,59 +17,90 @@ const STATUS_LABELS: Record<string, { color: string; text: string }> = {
 
 interface CourseRequest {
   id: number;
+  course_id: number;
   title: string;
   status: string;
   created_at: string;
 }
 
+interface CourseDraft {
+  title?: string;
+  summary?: string;
+  description?: string;
+  category?: string;
+  certificateName?: string;
+  videoUrl?: string;
+  coverUrl?: string;
+}
+
 export default function CreatorPage() {
-  const { address } = useAccount();
-  const { authenticated, user } = usePrivy();
-  const accountAddress = address ?? (user?.wallet?.address as `0x${string}` | undefined);
-  const { signTypedData } = useSignTypedData();
+  const { authenticated } = usePrivy();
+  const { wallets } = useWallets();
+  const externalWallet = wallets.find((wallet) => wallet.walletClientType !== 'privy');
+  const accountAddress = externalWallet?.address as `0x${string}` | undefined;
   const [form] = Form.useForm();
   const [submitting, setSubmitting] = useState(false);
   const [requests, setRequests] = useState<CourseRequest[]>([]);
+  const [requestsLoading, setRequestsLoading] = useState(false);
 
   useEffect(() => {
-    if (!accountAddress) return;
+    try {
+      const saved = window.localStorage.getItem(DRAFT_STORAGE_KEY);
+      if (saved) form.setFieldsValue(JSON.parse(saved) as CourseDraft);
+    } catch {
+      window.localStorage.removeItem(DRAFT_STORAGE_KEY);
+    }
+  }, [form]);
+
+  useEffect(() => {
+    if (!accountAddress) {
+      setRequests([]);
+      return;
+    }
+    setRequestsLoading(true);
     fetch(`${API_BASE}/api/course-requests?wallet=${accountAddress}`)
-      .then((r) => r.ok ? r.json() : null)
+      .then(async (r) => {
+        if (!r.ok) throw new Error('申请记录加载失败');
+        return r.json();
+      })
       .then((json) => { if (json?.data) setRequests(json.data as CourseRequest[]); })
-      .catch(() => {});
+      .catch((error: unknown) => {
+        message.error(error instanceof Error ? error.message : '申请记录加载失败');
+      })
+      .finally(() => setRequestsLoading(false));
   }, [accountAddress]);
 
   const submit = async () => {
     if (!authenticated) { message.info('请先登录账户'); return; }
     if (!accountAddress) { message.info('课程提交需要先连接外部钱包'); return; }
 
-    const values = await form.validateFields() as {
-      title: string;
-      summary: string;
-      description: string;
-      category: string;
-      certificateName: string;
-      videoUrl: string;
-      coverUrl: string;
-    };
-
     setSubmitting(true);
     try {
+      const values = await form.validateFields() as {
+        title: string;
+        summary: string;
+        description: string;
+        category: string;
+        certificateName: string;
+        videoUrl: string;
+        coverUrl: string;
+      };
+
       const timestamp = Date.now();
-      const signature = await signTypedData({
-        domain: EIP712_DOMAIN,
-        types: EIP712_TYPES,
-        primaryType: 'Action',
-        message: { action: 'submitCourse', address: accountAddress, timestamp: BigInt(timestamp) },
-      });
+      if (!externalWallet) throw new Error('请先连接 MetaMask 或 Base 钱包');
+      const signature = await signAction(externalWallet, 'submitCourse', timestamp);
       const response = await fetch(`${API_BASE}/api/course-requests`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ ...values, address: accountAddress, timestamp, signature }),
       });
-      if (!response.ok) throw new Error('课程提交失败');
+      if (!response.ok) {
+        const payload = await response.json().catch(() => null) as { error?: string } | null;
+        throw new Error(payload?.error || '课程提交失败');
+      }
       message.success('课程申请已提交，等待 Owner 审核');
       form.resetFields();
+      window.localStorage.removeItem(DRAFT_STORAGE_KEY);
       // refresh list
       const listResp = await fetch(`${API_BASE}/api/course-requests?wallet=${accountAddress}`);
       if (listResp.ok) {
@@ -84,7 +109,7 @@ export default function CreatorPage() {
       }
     } catch (error) {
       const text = error instanceof Error ? error.message : '课程提交失败';
-      message.error(text.includes('rejected') ? '用户取消了签名' : text);
+      message.error(text.includes('rejected') || text.includes('User rejected') ? '用户取消了签名' : text);
     } finally {
       setSubmitting(false);
     }
@@ -93,45 +118,59 @@ export default function CreatorPage() {
   if (!authenticated) {
     return <Alert showIcon type="info" message="创作者中心" description="登录账户后可以查看课程申请入口。" />;
   }
-  if (!accountAddress) {
-    return <Alert showIcon type="info" message="创作者中心" description="课程提交需要连接外部钱包；请在右上角账户菜单中连接钱包。" />;
-  }
 
   return (
-    <Row gutter={24} align="top">
+    <>
+      {!accountAddress && (
+        <Alert
+          showIcon
+          type="info"
+          message="提交课程前请连接钱包"
+          description="草稿会自动保存在当前浏览器。连接 MetaMask 或 Base 钱包后才能签名提交，并查看该钱包的申请记录。"
+          style={{ marginBottom: 20 }}
+        />
+      )}
+      <Row gutter={24} align="top">
       {/* 左侧：提交表单 */}
       <Col xs={24} lg={16}>
         <Card title="提交课程资料" bordered={false}>
-          <Form form={form} layout="vertical" requiredMark="optional">
-            <Form.Item name="title" label="课程名称" rules={[{ required: true, message: '请输入课程名称' }]}>
+          <Form
+            form={form}
+            layout="vertical"
+            requiredMark="optional"
+            onValuesChange={(_, values: CourseDraft) => {
+              window.localStorage.setItem(DRAFT_STORAGE_KEY, JSON.stringify(values));
+            }}
+          >
+            <Form.Item name="title" label={<span><span style={{ color: 'red', marginRight: 4 }}>*</span>课程名称</span>} rules={[{ required: true, message: '请输入课程名称' }]}>
               <Input />
             </Form.Item>
-            <Form.Item name="summary" label="一句话简介" rules={[{ required: true, message: '请输入简介' }]}>
+            <Form.Item name="summary" label={<span><span style={{ color: 'red', marginRight: 4 }}>*</span>一句话简介</span>} rules={[{ required: true, message: '请输入简介' }]}>
               <Input showCount maxLength={180} />
             </Form.Item>
-            <Form.Item name="description" label="详细介绍" rules={[{ required: true, message: '请输入详细介绍' }]}>
+            <Form.Item name="description" label={<span><span style={{ color: 'red', marginRight: 4 }}>*</span>详细介绍</span>} rules={[{ required: true, message: '请输入详细介绍' }]}>
               <Input.TextArea rows={5} showCount maxLength={2000} />
             </Form.Item>
             <Row gutter={16}>
               <Col span={12}>
-                <Form.Item name="category" label="分类" rules={[{ required: true, message: '请输入分类' }]}>
-                  <Input placeholder="Solidity / DeFi" />
+                <Form.Item name="category" label={<span><span style={{ color: 'red', marginRight: 4 }}>*</span>分类</span>} rules={[{ required: true, message: '请输入分类' }]} extra="例如：Solidity / DeFi / 预言机">
+                  <Input placeholder="Solidity / DeFi / 预言机" />
                 </Form.Item>
               </Col>
               <Col span={12}>
-                <Form.Item name="certificateName" label="证书名称" rules={[{ required: true, message: '请输入证书名称' }]}>
-                  <Input />
+                <Form.Item name="certificateName" label={<span><span style={{ color: 'red', marginRight: 4 }}>*</span>证书名称</span>} rules={[{ required: true, message: '请输入证书名称' }]} extra="完成课程后颁发的证书名称">
+                  <Input placeholder="例如：Solidity 开发专家" />
                 </Form.Item>
               </Col>
             </Row>
-            <Form.Item name="videoUrl" label="视频 URL" rules={[{ required: true, message: '请输入视频 URL' }]}>
+            <Form.Item name="videoUrl" label={<span><span style={{ color: 'red', marginRight: 4 }}>*</span>视频 URL</span>} rules={[{ required: true, message: '请输入视频 URL' }]}>
               <Input placeholder="https://..." />
             </Form.Item>
-            <Form.Item name="coverUrl" label="封面 URL" rules={[{ required: true, message: '请输入封面 URL' }]}>
+            <Form.Item name="coverUrl" label={<span><span style={{ color: 'red', marginRight: 4 }}>*</span>封面 URL</span>} rules={[{ required: true, message: '请输入封面 URL' }]}>
               <Input placeholder="https://..." />
             </Form.Item>
-            <Button type="primary" loading={submitting} onClick={() => void submit()}>
-              签名并提交上架申请
+            <Button type="primary" loading={submitting} disabled={!accountAddress} onClick={() => void submit()}>
+              {submitting ? '等待钱包签名并提交…' : '签名并提交上架申请'}
             </Button>
           </Form>
         </Card>
@@ -140,7 +179,11 @@ export default function CreatorPage() {
       {/* 右侧：我的课程申请 */}
       <Col xs={24} lg={8}>
         <Card title="我的课程申请" bordered={false}>
-          {requests.length === 0 ? (
+          {requestsLoading ? (
+            <Text type="secondary" style={{ display: 'block', textAlign: 'center', padding: '32px 0' }}>正在读取申请记录…</Text>
+          ) : !accountAddress ? (
+            <Text type="secondary" style={{ display: 'block', textAlign: 'center', padding: '32px 0' }}>连接钱包后显示记录</Text>
+          ) : requests.length === 0 ? (
             <Text type="secondary" style={{ display: 'block', textAlign: 'center', padding: '32px 0' }}>
               暂无申请
             </Text>
@@ -151,7 +194,7 @@ export default function CreatorPage() {
                   <div>
                     <div style={{ fontWeight: 500, fontSize: 14 }}>{req.title}</div>
                     <div style={{ color: '#888', fontSize: 12, marginTop: 2 }}>
-                      {new Date(req.created_at).toLocaleDateString('zh-CN')}
+                      课程 #{req.course_id} · {new Date(req.created_at).toLocaleDateString('zh-CN')}
                     </div>
                   </div>
                   <Tag color={STATUS_LABELS[req.status]?.color ?? 'default'}>
@@ -163,6 +206,7 @@ export default function CreatorPage() {
           )}
         </Card>
       </Col>
-    </Row>
+      </Row>
+    </>
   );
 }

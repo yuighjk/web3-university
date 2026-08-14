@@ -19,7 +19,7 @@ import {
 } from 'antd';
 import { UserOutlined, SafetyCertificateOutlined } from '@ant-design/icons';
 import { formatUnits } from 'viem';
-import { usePrivy, useSignTypedData } from '@privy-io/react-auth';
+import { usePrivy, useWallets } from '@privy-io/react-auth';
 
 import { ydTokenAbi, mockUsdcAbi, courseMarketAbi, courseCertificateAbi } from '@/contracts/abis';
 import {
@@ -29,31 +29,16 @@ import {
   COURSE_CERTIFICATE_ADDRESS,
 } from '@/contracts/addresses';
 import type { UserProfile, BackendCourse } from '@/types';
+import { signAction } from '@/utils/signAction';
 
 const { Title, Text } = Typography;
 const API_BASE = import.meta.env.VITE_API_BASE_URL || '';
-
-// EIP-712 domain + type for profile update
-const EIP712_DOMAIN = {
-  name: 'Web3University',
-  version: '1',
-  chainId: 11155111,
-} as const;
-
-// MessageTypes requires mutable arrays, so we don't use `as const` here
-const EIP712_TYPES = {
-  UpdateProfile: [
-    { name: 'action', type: 'string' },
-    { name: 'address', type: 'address' },
-    { name: 'timestamp', type: 'uint256' },
-  ],
-};
 
 export default function ProfilePage() {
   const { address } = useAccount();
   const { authenticated, user } = usePrivy();
   const accountAddress = address ?? (user?.wallet?.address as `0x${string}` | undefined);
-  const { signTypedData } = useSignTypedData();
+  const { wallets } = useWallets();
   const queryClient = useQueryClient();
   const [editMode, setEditMode] = useState(false);
   const [form] = Form.useForm();
@@ -143,18 +128,13 @@ export default function ProfilePage() {
   const updateMutation = useMutation({
     mutationFn: async (values: { username: string; avatar_url: string }) => {
       if (!accountAddress) throw new Error('账户尚未创建钱包');
+      const signingWallet = wallets.find(
+        (wallet) => wallet.address.toLowerCase() === accountAddress.toLowerCase(),
+      );
+      if (!signingWallet) throw new Error('当前账户的钱包尚未就绪，请刷新页面后重试');
 
-      const timestamp = BigInt(Date.now());
-      const signature = await signTypedData({
-        domain: EIP712_DOMAIN,
-        types: EIP712_TYPES,
-        primaryType: 'UpdateProfile',
-        message: {
-          action: 'updateProfile',
-          address: accountAddress,
-          timestamp,
-        },
-      });
+      const timestamp = Date.now();
+      const signature = await signAction(signingWallet, 'updateProfile', timestamp);
 
       const res = await fetch(`${API_BASE}/api/users/${accountAddress}`, {
         method: 'PUT',
@@ -162,20 +142,24 @@ export default function ProfilePage() {
         body: JSON.stringify({
           username: values.username,
           avatarUrl: values.avatar_url,
-          timestamp: timestamp.toString(),
+          timestamp,
           signature,
         }),
       });
-      if (!res.ok) throw new Error('更新失败');
+      if (!res.ok) {
+        const errorText = await res.text();
+        throw new Error(errorText || '更新失败');
+      }
       return res.json() as Promise<{ data: UserProfile }>;
     },
     onSuccess: () => {
       message.success('资料更新成功');
       setEditMode(false);
       void queryClient.invalidateQueries({ queryKey: ['user-profile', accountAddress] });
+      void queryClient.invalidateQueries({ queryKey: ['layout-profile', accountAddress] });
     },
     onError: (err: Error) => {
-      if (err.message.includes('User rejected') || err.message.includes('user rejected')) {
+      if (err.message.includes('User rejected') || err.message.includes('user rejected') || err.message.includes('rejected')) {
         message.error('用户取消了签名');
       } else {
         message.error(`更新失败：${err.message.slice(0, 80)}`);
@@ -183,11 +167,21 @@ export default function ProfilePage() {
     },
   });
 
-  const handleSaveProfile = useCallback(() => {
-    void form.validateFields().then((values: { username: string; avatar_url: string }) => {
+  const handleSaveProfile = useCallback(async () => {
+    if (!accountAddress) {
+      message.error('请先连接钱包');
+      return;
+    }
+    try {
+      const values = await form.validateFields() as { username: string; avatar_url: string };
       updateMutation.mutate(values);
-    });
-  }, [form, updateMutation]);
+    } catch (err) {
+      // validation failed or user cancelled
+      if (err && typeof err === 'object' && 'errorFields' in err) {
+        message.error('请检查表单输入');
+      }
+    }
+  }, [form, updateMutation, accountAddress]);
 
   if (!authenticated) {
     return (
@@ -237,7 +231,7 @@ export default function ProfilePage() {
                 loading={updateMutation.isPending}
                 onClick={handleSaveProfile}
               >
-                保存
+                {updateMutation.isPending ? '等待签名并保存…' : '保存'}
               </Button>
               <Button onClick={() => setEditMode(false)}>取消</Button>
             </Space>
@@ -268,7 +262,7 @@ export default function ProfilePage() {
             YD: {ydBalance !== undefined ? Number(formatUnits(ydBalance as bigint, 18)).toFixed(4) : '--'}
           </Tag>
           <Tag color="green" style={{ fontSize: 14, padding: '4px 12px' }}>
-            USDC: {usdcBalance !== undefined ? Number(formatUnits(usdcBalance as bigint, 6)).toFixed(2) : '--'}
+            mUSDC: {usdcBalance !== undefined ? Number(formatUnits(usdcBalance as bigint, 6)).toFixed(2) : '--'}
           </Tag>
         </Space>
       </Card>
@@ -304,7 +298,7 @@ export default function ProfilePage() {
       {/* Certificates */}
       <Card title={`已获证书（${certificates.length} 张）`}>
         {certificates.length === 0 ? (
-          <Text type="secondary">暂无证书，完成课程后由管理员发放</Text>
+          <Text type="secondary">暂无证书。课程学习进度达到 100% 后，由 Owner 在管理台审核并从 CourseCertificate 合约铸造。</Text>
         ) : (
           <List
             dataSource={certificates}
@@ -324,7 +318,7 @@ export default function ProfilePage() {
         )}
         <Divider />
         <Text type="secondary" style={{ fontSize: 11 }}>
-          证书为 Soulbound NFT，不可转让，永久绑定到您的钱包地址。
+          证书来自本项目部署的 ERC-721 CourseCertificate 合约，是不可转让的 Soulbound NFT，永久绑定到完成课程的钱包地址。
         </Text>
       </Card>
     </div>

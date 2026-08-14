@@ -1,289 +1,123 @@
-import { useState, useCallback } from 'react';
-import { useAccount, useReadContract, usePublicClient, useWalletClient } from 'wagmi';
-import {
-  Alert,
-  Button,
-  Card,
-  Descriptions,
-  Divider,
-  InputNumber,
-  message,
-  Space,
-  Steps,
-  Tag,
-  Typography,
-} from 'antd';
-import { SwapOutlined } from '@ant-design/icons';
-import { formatUnits, parseUnits } from 'viem';
+import { useCallback, useEffect, useState } from 'react';
+import { useAccount, useBalance, usePublicClient, useReadContract, useWalletClient } from 'wagmi';
+import { Alert, Button, Card, Col, InputNumber, message, Row, Segmented, Space, Steps, Tag, Typography } from 'antd';
+import { ArrowDownOutlined, GiftOutlined, InfoCircleOutlined } from '@ant-design/icons';
+import { formatUnits, parseUnits, zeroAddress } from 'viem';
 import { waitForTransactionReceipt } from 'viem/actions';
 
-import { ydTokenAbi, mockUsdcAbi, swapRouterAbi } from '@/contracts/abis';
-import {
-  YD_TOKEN_ADDRESS,
-  MOCK_USDC_ADDRESS,
-  SWAP_ROUTER_ADDRESS,
-} from '@/contracts/addresses';
+import { mockUsdcAbi, swapRouterAbi, testTokenFaucetAbi, ydTokenAbi } from '@/contracts/abis';
+import { MOCK_USDC_ADDRESS, SWAP_ROUTER_ADDRESS, TEST_TOKEN_FAUCET_ADDRESS, YD_TOKEN_ADDRESS } from '@/contracts/addresses';
 
 const { Title, Text } = Typography;
-
-// Uniswap V3 pool fee tier: 0.3%
 const POOL_FEE = 3000;
-// 20 minutes deadline from now
 const DEADLINE_OFFSET = 20 * 60;
-
-type SwapStep = 'idle' | 'approving' | 'swapping' | 'done' | 'error';
-
-const SWAP_STEPS = [
-  { title: '授权 USDC' },
-  { title: '执行兑换' },
-  { title: '完成' },
-];
-
-function getSwapStepIndex(step: SwapStep): number {
-  const map: Record<SwapStep, number> = {
-    idle: 0,
-    approving: 0,
-    swapping: 1,
-    done: 2,
-    error: 0,
-  };
-  return map[step];
-}
+const COOLDOWN_SECONDS = 24 * 60 * 60;
+const formatCountdown = (seconds: number) => `${Math.floor(seconds / 3600)}时 ${Math.floor((seconds % 3600) / 60)}分 ${seconds % 60}秒`;
 
 export default function SwapPage() {
   const { address } = useAccount();
   const publicClient = usePublicClient();
   const { data: walletClient } = useWalletClient();
-
-  const [usdcAmount, setUsdcAmount] = useState<string>('');
-  const [swapStep, setSwapStep] = useState<SwapStep>('idle');
+  const [inputAmount, setInputAmount] = useState('');
+  const [inputToken, setInputToken] = useState<'mUSDC' | 'ETH'>('mUSDC');
+  const [claimToken, setClaimToken] = useState<'mUSDC' | 'YD'>('mUSDC');
+  const [swapping, setSwapping] = useState(false);
   const [faucetLoading, setFaucetLoading] = useState(false);
+  const [swapStep, setSwapStep] = useState(0);
+  const [nowSeconds, setNowSeconds] = useState(() => Math.floor(Date.now() / 1000));
+  const faucetConfigured = TEST_TOKEN_FAUCET_ADDRESS !== zeroAddress;
+  const readAddress = address ?? zeroAddress;
 
-  const { data: ydBalance, refetch: refetchYd } = useReadContract({
-    address: YD_TOKEN_ADDRESS,
-    abi: ydTokenAbi,
-    functionName: 'balanceOf',
-    args: [address ?? '0x0000000000000000000000000000000000000000'],
-    query: { enabled: !!address },
-  });
+  useEffect(() => {
+    const timer = window.setInterval(() => setNowSeconds(Math.floor(Date.now() / 1000)), 1000);
+    return () => window.clearInterval(timer);
+  }, []);
 
-  const { data: usdcBalance, refetch: refetchUsdc } = useReadContract({
-    address: MOCK_USDC_ADDRESS,
-    abi: mockUsdcAbi,
-    functionName: 'balanceOf',
-    args: [address ?? '0x0000000000000000000000000000000000000000'],
-    query: { enabled: !!address },
-  });
+  const { data: ethBalance } = useBalance({ address, query: { enabled: !!address } });
+  const { data: ydBalance, refetch: refetchYd } = useReadContract({ address: YD_TOKEN_ADDRESS, abi: ydTokenAbi, functionName: 'balanceOf', args: [readAddress], query: { enabled: !!address } });
+  const { data: usdcBalance, refetch: refetchUsdc } = useReadContract({ address: MOCK_USDC_ADDRESS, abi: mockUsdcAbi, functionName: 'balanceOf', args: [readAddress], query: { enabled: !!address } });
+  const { data: faucetUsdcReserve, refetch: refetchFaucetUsdc } = useReadContract({ address: MOCK_USDC_ADDRESS, abi: mockUsdcAbi, functionName: 'balanceOf', args: [TEST_TOKEN_FAUCET_ADDRESS], query: { enabled: faucetConfigured } });
+  const { data: faucetYdReserve, refetch: refetchFaucetYd } = useReadContract({ address: YD_TOKEN_ADDRESS, abi: ydTokenAbi, functionName: 'balanceOf', args: [TEST_TOKEN_FAUCET_ADDRESS], query: { enabled: faucetConfigured } });
+  const { data: lastClaimAt, refetch: refetchLastClaim } = useReadContract({ address: TEST_TOKEN_FAUCET_ADDRESS, abi: testTokenFaucetAbi, functionName: 'lastClaimAt', args: [readAddress], query: { enabled: faucetConfigured && !!address } });
 
-  // Faucet: claim test USDC
+  const remainingSeconds = Math.max(0, Number(lastClaimAt ?? 0n) + COOLDOWN_SECONDS - nowSeconds);
+  const canClaim = faucetConfigured && !!address && remainingSeconds === 0;
+  const estimatedOutput = inputAmount && Number(inputAmount) > 0 ? inputToken === 'mUSDC' ? Number(inputAmount).toFixed(2) : (Number(inputAmount) * 2000).toFixed(2) : '0.00';
+  const paymentBalance = inputToken === 'mUSDC' ? usdcBalance === undefined ? '--' : Number(formatUnits(usdcBalance, 6)).toFixed(2) : ethBalance ? Number(formatUnits(ethBalance.value, ethBalance.decimals)).toFixed(5) : '--';
+
   const handleFaucet = useCallback(async () => {
-    if (!address || !publicClient || !walletClient) {
-      message.error('请先连接钱包');
-      return;
-    }
+    if (!faucetConfigured) return message.info('新水龙头合约尚未部署到 Sepolia');
+    if (!address || !publicClient || !walletClient) return message.error('请先连接钱包');
+    if (!canClaim) return message.warning(`距离下次领取还有 ${formatCountdown(remainingSeconds)}`);
     setFaucetLoading(true);
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const wc = walletClient as any;
     try {
-      const amount = parseUnits('1000', 6);
-      const hash = (await wc.writeContract({
-        address: MOCK_USDC_ADDRESS,
-        abi: mockUsdcAbi,
-        functionName: 'faucet',
-        args: [amount],
-      })) as `0x${string}`;
+      const hash = await walletClient.writeContract({ address: TEST_TOKEN_FAUCET_ADDRESS, abi: testTokenFaucetAbi, functionName: 'claim', args: [claimToken === 'YD'] });
       await waitForTransactionReceipt(publicClient, { hash });
-      message.success('领取 1,000 USDC 成功！');
-      void refetchUsdc();
-    } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : '领取失败';
-      if (msg.includes('User rejected') || msg.includes('user rejected')) {
-        message.error('用户取消了交易');
-      } else {
-        message.error(`领取失败：${msg.slice(0, 80)}`);
-      }
-    } finally {
-      setFaucetLoading(false);
-    }
-  }, [address, publicClient, walletClient, refetchUsdc]);
+      message.success(`已领取 100 ${claimToken}`);
+      await Promise.all([refetchYd(), refetchUsdc(), refetchFaucetUsdc(), refetchFaucetYd(), refetchLastClaim()]);
+    } catch (error) {
+      const text = error instanceof Error ? error.message : '领取失败';
+      message.error(text.toLowerCase().includes('reject') ? '用户取消了交易' : `领取失败：${text.slice(0, 80)}`);
+    } finally { setFaucetLoading(false); }
+  }, [address, canClaim, claimToken, faucetConfigured, publicClient, refetchFaucetUsdc, refetchFaucetYd, refetchLastClaim, refetchUsdc, refetchYd, remainingSeconds, walletClient]);
 
-  // USDC → YD swap via Uniswap V3 exactInputSingle
   const handleSwap = useCallback(async () => {
-    if (!address || !publicClient || !walletClient) {
-      message.error('请先连接钱包');
-      return;
-    }
-    if (!usdcAmount || Number(usdcAmount) <= 0) {
-      message.error('请输入兑换数量');
-      return;
-    }
-
-    const amountIn = parseUnits(usdcAmount, 6);
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const wc = walletClient as any;
-
+    if (!address || !publicClient || !walletClient) return message.error('请先连接钱包');
+    if (inputToken === 'ETH') return message.info('ETH → YD 需要先部署 WETH/YD Uniswap 池，当前不会发送无效交易');
+    if (!inputAmount || Number(inputAmount) <= 0) return message.error('请输入兑换数量');
+    const amountIn = parseUnits(inputAmount, 6);
+    if (usdcBalance !== undefined && amountIn > usdcBalance) return message.error('mUSDC 余额不足');
+    setSwapping(true);
     try {
-      // Step 1: approve USDC to SwapRouter (serial — wait for receipt)
-      setSwapStep('approving');
-      const allowance = await publicClient.readContract({
-        address: MOCK_USDC_ADDRESS,
-        abi: mockUsdcAbi,
-        functionName: 'allowance',
-        args: [address, SWAP_ROUTER_ADDRESS],
-      });
-
+      setSwapStep(0);
+      const allowance = await publicClient.readContract({ address: MOCK_USDC_ADDRESS, abi: mockUsdcAbi, functionName: 'allowance', args: [address, SWAP_ROUTER_ADDRESS] });
       if (allowance < amountIn) {
-        const approveHash = (await wc.writeContract({
-          address: MOCK_USDC_ADDRESS,
-          abi: mockUsdcAbi,
-          functionName: 'approve',
-          args: [SWAP_ROUTER_ADDRESS, amountIn],
-        })) as `0x${string}`;
+        const approveHash = await walletClient.writeContract({ address: MOCK_USDC_ADDRESS, abi: mockUsdcAbi, functionName: 'approve', args: [SWAP_ROUTER_ADDRESS, amountIn] });
         await waitForTransactionReceipt(publicClient, { hash: approveHash });
       }
-
-      // Step 2: exactInputSingle swap
-      setSwapStep('swapping');
-      // amountOutMinimum = 0 for testnet; production must use price oracle
-      const amountOutMinimum = 0n;
-      const deadline = BigInt(Math.floor(Date.now() / 1000) + DEADLINE_OFFSET);
-
-      const swapHash = (await wc.writeContract({
-        address: SWAP_ROUTER_ADDRESS,
-        abi: swapRouterAbi,
-        functionName: 'exactInputSingle',
-        args: [
-          {
-            tokenIn: MOCK_USDC_ADDRESS,
-            tokenOut: YD_TOKEN_ADDRESS,
-            fee: POOL_FEE,
-            recipient: address,
-            deadline,
-            amountIn,
-            amountOutMinimum,
-            sqrtPriceLimitX96: 0n,
-          },
-        ],
-      })) as `0x${string}`;
+      setSwapStep(1);
+      const swapHash = await walletClient.writeContract({ address: SWAP_ROUTER_ADDRESS, abi: swapRouterAbi, functionName: 'exactInputSingle', args: [{ tokenIn: MOCK_USDC_ADDRESS, tokenOut: YD_TOKEN_ADDRESS, fee: POOL_FEE, recipient: address, deadline: BigInt(Math.floor(Date.now() / 1000) + DEADLINE_OFFSET), amountIn, amountOutMinimum: 0n, sqrtPriceLimitX96: 0n }] });
       await waitForTransactionReceipt(publicClient, { hash: swapHash });
-
-      setSwapStep('done');
-      message.success('兑换成功！');
-      setUsdcAmount('');
-      void refetchYd();
-      void refetchUsdc();
-    } catch (err: unknown) {
-      setSwapStep('error');
-      const msg = err instanceof Error ? err.message : '兑换失败';
-      if (msg.includes('User rejected') || msg.includes('user rejected')) {
-        message.error('用户取消了交易');
-      } else {
-        message.error(`兑换失败：${msg.slice(0, 80)}`);
-      }
-    }
-  }, [address, publicClient, walletClient, usdcAmount, refetchYd, refetchUsdc]);
-
-  const isSwapping = swapStep === 'approving' || swapStep === 'swapping';
+      setSwapStep(2);
+      setInputAmount('');
+      message.success('兑换完成，余额已更新');
+      await Promise.all([refetchYd(), refetchUsdc()]);
+    } catch (error) {
+      const text = error instanceof Error ? error.message : '兑换失败';
+      message.error(text.toLowerCase().includes('reject') ? '用户取消了交易' : `兑换失败：${text.slice(0, 80)}`);
+    } finally { setSwapping(false); }
+  }, [address, inputAmount, inputToken, publicClient, refetchUsdc, refetchYd, usdcBalance, walletClient]);
 
   return (
-    <div style={{ maxWidth: 480, margin: '0 auto' }}>
-      <Title level={2}>代币兑换</Title>
-      <Text type="secondary">使用项目部署的 MockUSDC（界面简称 mUSDC）在 Uniswap V3 上兑换 YD 代币</Text>
-
-      <Card style={{ marginTop: 24 }}>
-        <Descriptions column={1} size="small" style={{ marginBottom: 16 }}>
-          <Descriptions.Item label="YD 余额">
-            <Tag color="blue">
-              {ydBalance !== undefined
-                ? `${Number(formatUnits(ydBalance as bigint, 18)).toFixed(4)} YD`
-                : '--'}
-            </Tag>
-          </Descriptions.Item>
-          <Descriptions.Item label="mUSDC 余额">
-            <Tag color="green">
-              {usdcBalance !== undefined
-                ? `${Number(formatUnits(usdcBalance as bigint, 6)).toFixed(2)} mUSDC`
-                : '--'}
-            </Tag>
-          </Descriptions.Item>
-        </Descriptions>
-
-        <Divider />
-
-        <Space direction="vertical" style={{ width: '100%', marginBottom: 16 }}>
-          <Text strong>mUSDC 测试水龙头</Text>
-          <Text type="secondary" style={{ fontSize: 11 }}>
-            mUSDC 是本项目在 Sepolia 部署的 MockUSDC 测试 ERC-20，不是真实 USDC 或 USDT，仅用于完成兑换流程演示。
-          </Text>
-          <Button
-            onClick={() => void handleFaucet()}
-            loading={faucetLoading}
-            disabled={!address}
-          >
-            领取 1,000 mUSDC
-          </Button>
-        </Space>
-
-        <Divider />
-
-        <Space direction="vertical" style={{ width: '100%' }} size={12}>
-          <Text strong>mUSDC → YD 兑换</Text>
-
-          <div>
-            <Text type="secondary" style={{ fontSize: 12 }}>
-              输入 mUSDC 数量
-            </Text>
-            <InputNumber
-              value={usdcAmount}
-              onChange={(v) => setUsdcAmount(v?.toString() ?? '')}
-              placeholder="输入 mUSDC 数量"
-              min="0"
-              style={{ width: '100%' }}
-              addonAfter="mUSDC"
-              stringMode
-            />
-          </div>
-
-          {swapStep !== 'idle' && swapStep !== 'error' && (
-            <Steps
-              current={getSwapStepIndex(swapStep)}
-              items={SWAP_STEPS}
-              size="small"
-              style={{ marginTop: 8 }}
-            />
-          )}
-
-          {swapStep === 'error' && (
-            <Alert type="error" message="兑换失败，请重试" showIcon />
-          )}
-
-          <Space>
-            <Button
-              type="primary"
-              icon={<SwapOutlined />}
-              loading={isSwapping}
-              disabled={!address || !usdcAmount || Number(usdcAmount) <= 0}
-              onClick={() => void handleSwap()}
-            >
-              {isSwapping ? '兑换中...' : '立即兑换'}
-            </Button>
-            {(swapStep === 'done' || swapStep === 'error') && (
-              <Button onClick={() => setSwapStep('idle')}>重置</Button>
-            )}
-          </Space>
-
-          {swapStep === 'done' && (
-            <Alert type="success" message="兑换成功，YD 余额已更新" showIcon />
-          )}
-        </Space>
-
-        <Divider />
-        <Text type="secondary" style={{ fontSize: 11 }}>
-          兑换路径：mUSDC → YD，使用 Sepolia Uniswap V3 的 YD / MockUSDC 池，手续费 0.3%。
-          1 YD = 1 USDC 是建池时的参考初始价格，之后实际价格由池子的流动性和 AMM 交易决定，并非固定汇率。
-          当前测试网为便于演示将 amountOutMinimum 设为 0，正式环境应加入滑点保护。
-        </Text>
-      </Card>
+    <div style={{ maxWidth: 980, margin: '0 auto' }}>
+      <div style={{ marginBottom: 22 }}><Title level={2} style={{ marginBottom: 6 }}>获取与兑换 YD</Title><Text type="secondary">测试代币不会因登录自动发放。先连接钱包，再领取或使用资产兑换。</Text></div>
+      <Row gutter={[20, 20]} align="stretch">
+        <Col xs={24} lg={9}>
+          <Card className="token-faucet-card" style={{ height: '100%' }}>
+            <Space direction="vertical" size={18} style={{ width: '100%' }}>
+              <div><Tag icon={<GiftOutlined />} color="purple">测试网水龙头</Tag><Title level={4} style={{ margin: '12px 0 4px' }}>领取测试代币</Title><Text type="secondary">每个钱包每 24 小时只能二选一领取 100 个。</Text></div>
+              <Segmented block options={['mUSDC', 'YD']} value={claimToken} onChange={(value) => setClaimToken(value as 'mUSDC' | 'YD')} />
+              <div className="faucet-reserve-grid"><div><span>mUSDC 剩余</span><strong>{faucetConfigured && faucetUsdcReserve !== undefined ? Number(formatUnits(faucetUsdcReserve, 6)).toFixed(0) : '--'}</strong></div><div><span>YD 剩余</span><strong>{faucetConfigured && faucetYdReserve !== undefined ? Number(formatUnits(faucetYdReserve, 18)).toFixed(0) : '--'}</strong></div></div>
+              {!faucetConfigured && <Alert type="warning" showIcon message="新水龙头待部署" description="旧合约可无限增发，已从页面停用。部署新合约并配置地址后即可领取。" />}
+              {remainingSeconds > 0 && <Alert type="info" showIcon message={`下次可领取：${formatCountdown(remainingSeconds)}`} />}
+              <Button className="faucet-claim-button" type="primary" block size="large" loading={faucetLoading} disabled={!canClaim} onClick={() => void handleFaucet()}>领取 100 {claimToken}</Button>
+              <Text type="secondary" style={{ fontSize: 11 }}>初始储备各 9,900 个，由水龙头合约转账，不会凭空增发。</Text>
+            </Space>
+          </Card>
+        </Col>
+        <Col xs={24} lg={15}>
+          <Card className="token-swap-card">
+            <div className="swap-rate-strip"><div><span>参考比例</span><strong>1 mUSDC = 1 YD</strong></div><div><span>目标参考</span><strong>1 ETH = 2,000 YD</strong></div></div>
+            <Alert icon={<InfoCircleOutlined />} type="info" showIcon message="链上成交价以 Uniswap 池状态为准；参考比例不是系统强制固定价格。" style={{ marginBottom: 18 }} />
+            <div className="swap-token-panel"><div className="swap-panel-heading"><span>你支付</span><small>余额 {paymentBalance} {inputToken}</small></div><div className="swap-input-row"><InputNumber stringMode controls={false} min="0" value={inputAmount} onChange={(value) => setInputAmount(value?.toString() ?? '')} placeholder="0.00" /><Segmented options={['mUSDC', 'ETH']} value={inputToken} onChange={(value) => { setInputToken(value as 'mUSDC' | 'ETH'); setSwapStep(0); }} /></div></div>
+            <div className="swap-direction"><ArrowDownOutlined /></div>
+            <div className="swap-token-panel output"><div className="swap-panel-heading"><span>预计获得</span><small>YD 余额 {ydBalance === undefined ? '--' : Number(formatUnits(ydBalance, 18)).toFixed(2)}</small></div><div className="swap-output-value">{estimatedOutput}<b>YD</b></div></div>
+            <Steps size="small" current={swapStep} items={[{ title: '授权 mUSDC' }, { title: 'Uniswap 兑换' }, { title: '余额更新' }]} style={{ margin: '22px 0' }} />
+            {inputToken === 'ETH' && <Alert type="warning" showIcon message="ETH 路径尚未上链" description="需要新增 WETH/YD Uniswap 池与流动性。页面保留目标汇率说明，但不会伪造兑换结果。" style={{ marginBottom: 16 }} />}
+            <Button type="primary" block size="large" loading={swapping} disabled={!address || !inputAmount || Number(inputAmount) <= 0 || inputToken === 'ETH'} onClick={() => void handleSwap()}>{!address ? '连接钱包后兑换' : inputToken === 'ETH' ? 'ETH 路径待部署' : `用 ${inputAmount || '0'} mUSDC 兑换 YD`}</Button>
+          </Card>
+        </Col>
+      </Row>
     </div>
   );
 }

@@ -12,7 +12,11 @@ const AllContractsModule = buildModule("AllContractsModule", (m) => {
   // 3. Deploy CourseCertificate
   const courseCertificate = m.contract("CourseCertificate");
 
-  return { ydToken, mockUSDC, courseMarket, courseCertificate };
+  const faucet = m.contract("TestTokenFaucet", [mockUSDC, ydToken, deployer]);
+  m.call(mockUSDC, "transfer", [faucet, 9_900n * 10n ** 6n], { id: "fundFaucetMockUSDC" });
+  m.call(ydToken, "transfer", [faucet, 9_900n * 10n ** 18n], { id: "fundFaucetYD" });
+
+  return { ydToken, mockUSDC, courseMarket, courseCertificate, faucet };
 });
 
 export default AllContractsModule;

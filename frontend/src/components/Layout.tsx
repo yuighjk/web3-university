@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import {
   Alert,
   Avatar,
@@ -35,6 +35,11 @@ import { MOCK_USDC_ADDRESS, YD_TOKEN_ADDRESS } from '@/contracts/addresses';
 const { Header, Content, Footer, Sider } = AntLayout;
 const API_BASE = import.meta.env.VITE_API_BASE_URL || '';
 
+interface LayoutProfile {
+  username: string | null;
+  avatarUrl: string | null;
+}
+
 export default function Layout({ children }: { children: React.ReactNode }) {
   const location = useLocation();
   const navigate = useNavigate();
@@ -47,17 +52,28 @@ export default function Layout({ children }: { children: React.ReactNode }) {
   const [accountOpen, setAccountOpen] = useState(false);
   const [loginEmail, setLoginEmail] = useState('');
   const [loginCode, setLoginCode] = useState('');
+  const [avatarLoadFailed, setAvatarLoadFailed] = useState(false);
 
-  const { data: profile } = useQuery<{ username: string | null }>({
+  const { data: profile } = useQuery<LayoutProfile>({
     queryKey: ['layout-profile', accountAddress],
     enabled: !!accountAddress,
     retry: 0,
     queryFn: async () => {
       const response = await fetch(`${API_BASE}/api/users/${accountAddress}`);
-      if (!response.ok) return { username: null };
-      return ((await response.json()) as { data: { username: string | null } }).data;
+      if (!response.ok) return { username: null, avatarUrl: null };
+      const payload = (await response.json()) as {
+        data: { username: string | null; avatarUrl?: string | null; avatar_url?: string | null };
+      };
+      return {
+        username: payload.data.username,
+        avatarUrl: payload.data.avatarUrl ?? payload.data.avatar_url ?? null,
+      };
     },
   });
+
+  useEffect(() => {
+    setAvatarLoadFailed(false);
+  }, [profile?.avatarUrl]);
   const balanceAddress = accountAddress ?? '0x0000000000000000000000000000000000000000';
   const { data: ydBalance } = useReadContract({
     address: YD_TOKEN_ADDRESS,
@@ -86,6 +102,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
   ];
   const shortAddress = accountAddress ? `${accountAddress.slice(0, 6)}...${accountAddress.slice(-4)}` : '学生账户';
   const accountName = profile?.username || user?.email?.address || shortAddress;
+  const accountAvatarUrl = !avatarLoadFailed ? profile?.avatarUrl ?? undefined : undefined;
   const externalWallet = wallets.find((wallet) => wallet.walletClientType !== 'privy');
   const walletConnected = !!externalWallet;
   const walletDisplayAddress = externalWallet?.address ? `${externalWallet.address.slice(0, 6)}...${externalWallet.address.slice(-4)}` : '';
@@ -143,7 +160,12 @@ export default function Layout({ children }: { children: React.ReactNode }) {
   const accountPanel = (
     <div className="account-popover-card">
       <div className="account-popover-heading">
-        <Avatar size={42} icon={<UserOutlined />} />
+        <Avatar
+          size={42}
+          src={accountAvatarUrl}
+          icon={!accountAvatarUrl ? <UserOutlined /> : undefined}
+          onError={() => { setAvatarLoadFailed(true); return false; }}
+        />
         <div>
           <strong>{accountName}</strong>
           <span>{authenticated ? (accountAddress ? shortAddress : '钱包未连接') : '尚未登录账户'}</span>
@@ -161,7 +183,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
       {!authenticated && <div className="account-login-note">登录后可修改昵称、查看个人学习记录</div>}
       <div className="account-balance-grid">
         <div className="balance-row"><span>YD 额度</span><strong>{ydBalance === undefined ? '--' : Number(formatUnits(ydBalance, 18)).toFixed(4)}</strong></div>
-        <div className="balance-row"><span>USDC 余额</span><strong>{usdcBalance === undefined ? '--' : Number(formatUnits(usdcBalance, 6)).toFixed(2)}</strong></div>
+        <div className="balance-row"><span>mUSDC 余额</span><strong>{usdcBalance === undefined ? '--' : Number(formatUnits(usdcBalance, 6)).toFixed(2)}</strong></div>
       </div>
       <div className="wallet-state"><span>钱包状态</span><strong className={walletConnected ? 'is-connected' : ''}>{walletConnected ? `已连接 ${walletDisplayAddress}` : '钱包未连接'}</strong></div>
       {!authenticated && <Button type="primary" block onClick={openLogin}>登录账户</Button>}
@@ -200,7 +222,12 @@ export default function Layout({ children }: { children: React.ReactNode }) {
               overlayClassName="account-popover"
             >
               <button className="header-account-button" aria-label="打开账户操作">
-                <Avatar size={34} icon={<UserOutlined />} />
+                <Avatar
+                  size={34}
+                  src={accountAvatarUrl}
+                  icon={!accountAvatarUrl ? <UserOutlined /> : undefined}
+                  onError={() => { setAvatarLoadFailed(true); return false; }}
+                />
                 <span className="header-account-copy"><strong>{authenticated ? accountName : '学生账户'}</strong><small>{!ready ? '初始化中…' : !authenticated ? '未登录' : walletConnected ? '钱包已连接' : '钱包未连接'}</small></span>
                 <span className="header-account-caret">⌄</span>
               </button>

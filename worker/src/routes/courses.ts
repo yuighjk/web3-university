@@ -16,10 +16,14 @@ courseRoutes.get('/', async (c) => {
     ? requestedStatus
     : 'published';
   const { results } = await c.env.DB.prepare(
-    `SELECT id, course_id, title, description, cover_url, content_hash, status, provider_address, created_at
+    `SELECT courses.id, courses.course_id, courses.title, courses.description,
+            courses.cover_url, courses.content_hash, courses.status,
+            courses.provider_address, courses.created_at,
+            course_requests.certificate_name
      FROM courses
-     WHERE status = ?
-     ORDER BY created_at DESC
+     LEFT JOIN course_requests ON course_requests.course_id = courses.course_id
+     WHERE courses.status = ?
+     ORDER BY courses.created_at DESC
      LIMIT 50`
   ).bind(status).all();
   return ok(c, results);
@@ -195,5 +199,11 @@ courseRoutes.patch('/:id/status', async (c) => {
     .run();
 
   if (result.meta.changes === 0) return err(c, 'Course not found', 404);
+  const requestStatus = status === 'published' ? 'approved' : status === 'delisted' ? 'rejected' : 'pending';
+  await c.env.DB.prepare(
+    `UPDATE course_requests
+     SET status = ?, updated_at = CURRENT_TIMESTAMP
+     WHERE course_id = ?`
+  ).bind(requestStatus, courseId).run();
   return ok(c, { courseId, status });
 });

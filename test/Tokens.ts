@@ -76,26 +76,28 @@ describe("MockUSDC", function () {
     assert.equal(balance, parseUnits("1000000", 6));
   });
 
-  it("should allow faucet up to 10,000 USDC", async function () {
-    const usdcAsOther = await viem.getContractAt("MockUSDC", usdc.address, {
-      client: { wallet: otherAccount },
-    });
-
-    const amount = parseUnits("5000", 6);
-    await usdcAsOther.write.faucet([amount]);
-
-    const balance = await usdc.read.balanceOf([otherAccount.account.address]);
-    assert.equal(balance, amount);
+  it("does not expose an unlimited public mint faucet", async function () {
+    assert.equal(usdc.abi.some((entry: any) => entry.type === "function" && entry.name === "faucet"), false);
   });
+});
 
-  it("should revert faucet over 10,000 USDC", async function () {
-    const amount = parseUnits("10001", 6);
-    await assert.rejects(
-      usdc.write.faucet([amount]),
-      (err: any) => {
-        assert.ok(err.message.includes("Max 10000 USDC per faucet"));
-        return true;
-      }
-    );
+describe("TestTokenFaucet", function () {
+  it("transfers a chosen token and enforces one claim every 24 hours", async function () {
+    const connection = await network.getOrCreate();
+    const viem = connection.viem;
+    const [owner, student] = await viem.getWalletClients();
+    const ydToken = await viem.deployContract("YDToken");
+    const mockUSDC = await viem.deployContract("MockUSDC");
+    const faucet = await viem.deployContract("TestTokenFaucet", [mockUSDC.address, ydToken.address, owner.account.address]);
+    await mockUSDC.write.transfer([faucet.address, parseUnits("9900", 6)]);
+    await ydToken.write.transfer([faucet.address, parseUnits("9900", 18)]);
+    const studentFaucet = await viem.getContractAt("TestTokenFaucet", faucet.address, { client: { wallet: student } });
+    await studentFaucet.write.claim([false]);
+    assert.equal(await mockUSDC.read.balanceOf([student.account.address]), parseUnits("100", 6));
+    assert.equal(await mockUSDC.read.balanceOf([faucet.address]), parseUnits("9800", 6));
+    await assert.rejects(studentFaucet.write.claim([true]), (error: any) => {
+      assert.ok(error.message.includes("Claim cooldown active"));
+      return true;
+    });
   });
 });
