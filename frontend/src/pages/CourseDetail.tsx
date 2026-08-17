@@ -312,7 +312,7 @@ export default function CourseDetail() {
               loading={isBuying}
               disabled={!address || !course.active}
               onClick={() => void buy(courseId, course.price)}
-              style={{ height: 44, fontSize: 15, borderRadius: 8 }}
+              style={{ height: 44, fontSize: 15, borderRadius: 8, ...( (!address || !course.active) && !isBuying ? { background: '#e0e0e0', borderColor: '#e0e0e0', color: '#666' } : {}) }}
             >
               {!address ? '连接钱包后购买' : isBuying ? '处理中...' : `购买课程 · ${formatUnits(course.price, 18)} YD`}
             </Button>

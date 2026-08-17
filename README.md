@@ -4,7 +4,8 @@
 
 ## 在线体验
 
-- 前端：部署后填写
+- 前端：https://web3-university-6t4.pages.dev/
+- 后端：https://web3-university-worker.yyyio3184027.workers.dev/
 - 合约验证：https://eth-sepolia.blockscout.com/address/0x6Fc7a078C8d18CF9b339c4509926D9d9eAd5ed61#code
 
 ## 技术栈

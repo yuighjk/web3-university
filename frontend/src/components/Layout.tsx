@@ -101,8 +101,8 @@ export default function Layout({ children }: { children: React.ReactNode }) {
     { key: '/owner', icon: <SafetyCertificateOutlined />, label: <Link to="/owner">Owner 管理台</Link> },
   ];
   const shortAddress = accountAddress ? `${accountAddress.slice(0, 6)}...${accountAddress.slice(-4)}` : '学生账户';
-  const accountName = profile?.username || user?.email?.address || shortAddress;
-  const accountAvatarUrl = !avatarLoadFailed ? profile?.avatarUrl ?? undefined : undefined;
+  const accountName = authenticated ? (profile?.username || user?.email?.address || shortAddress) : '学生账户';
+  const accountAvatarUrl = authenticated && !avatarLoadFailed ? profile?.avatarUrl ?? undefined : undefined;
   const externalWallet = wallets.find((wallet) => wallet.walletClientType !== 'privy');
   const walletConnected = !!externalWallet;
   const walletDisplayAddress = externalWallet?.address ? `${externalWallet.address.slice(0, 6)}...${externalWallet.address.slice(-4)}` : '';
