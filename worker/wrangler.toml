@@ -5,8 +5,8 @@ compatibility_flags = ["nodejs_compat"]
 
 [[d1_databases]]
 binding = "DB"
-database_name = "web3-university"
-database_id = "placeholder-replace-after-wrangler-d1-create"
+database_name = "web3-university-db"
+database_id = "9ba2d1e4-a539-43a4-b7a3-3fc8b42ef1db"
 
 [vars]
 # Public vars (non-sensitive). Sensitive values use: wrangler secret put
