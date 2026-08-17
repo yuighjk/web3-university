@@ -13,7 +13,6 @@ import {
   Typography,
 } from 'antd';
 import { createPublicClient, custom } from 'viem';
-import { waitForTransactionReceipt } from 'viem/actions';
 import { sepolia } from 'viem/chains';
 import { useWallets } from '@privy-io/react-auth';
 
@@ -146,6 +145,8 @@ interface TabProps {
 
 function ProviderTab({ publicClient, walletClient, queryClient }: TabProps) {
   const [loading, setLoading] = useState(false);
+  const { address } = useAccount();
+  const { wallets } = useWallets();
 
   // Fetch pending provider applications from backend
   const { data: applications, isLoading: appsLoading, refetch: refetchApps } = useQuery<{ id: number; wallet_address: string; role: string; name: string; introduction: string; status: string; created_at: string }[]>({
@@ -160,20 +161,30 @@ function ProviderTab({ publicClient, walletClient, queryClient }: TabProps) {
   });
 
   const handleApprove = useCallback(async (app: { id: number; wallet_address: string; role: string; name: string }) => {
-    if (!publicClient || !walletClient) return;
+    if (!address) {
+      message.error('请先连接钱包');
+      return;
+    }
+    const signingWallet = wallets.find((w) => w.address.toLowerCase() === address.toLowerCase()) || wallets[0];
+    if (!signingWallet) {
+      message.error('未检测到可用钱包');
+      return;
+    }
     setLoading(true);
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const wc = walletClient as any;
     try {
-      // 1. Call contract setProvider
       const pType = app.role === 'teacher' ? 1 : 2;
-      const hash = (await wc.writeContract({
+      const provider = await signingWallet.getEthereumProvider();
+      const { createWalletClient: createWC } = await import('viem');
+      const wc = createWC({ account: address as `0x${string}`, chain: sepolia, transport: custom(provider) });
+      const walletPublicClient = createPublicClient({ chain: sepolia, transport: custom(provider) });
+
+      const hash = await wc.writeContract({
         address: COURSE_MARKET_ADDRESS,
         abi: courseMarketAbi,
         functionName: 'setProvider',
         args: [app.wallet_address as `0x${string}`, pType],
-      })) as `0x${string}`;
-      await waitForTransactionReceipt(publicClient, { hash });
+      });
+      await walletPublicClient.waitForTransactionReceipt({ hash });
 
       // 2. Update backend status
       await fetch(`${API_BASE}/api/provider-applications/${app.id}`, {
