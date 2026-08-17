@@ -63,7 +63,7 @@ export default function CourseList() {
         <Paragraph>一所为开放互联网而生的大学。老师与商家提交课程，经 Owner 审核后写入 Sepolia；学生用 USDC 兑换 YD、购买并完成学习，最终获得永久绑定钱包的 ERC721 结业证书。</Paragraph>
         <div className="hero-actions">
           <Button type="primary" onClick={() => document.getElementById('course-market')?.scrollIntoView({ behavior: 'smooth' })}>浏览课程 <ArrowRightOutlined /></Button>
-          <Button onClick={() => navigate('/profile')}>申请成为讲师</Button>
+          <Button onClick={() => navigate('/creator')}>申请成为讲师</Button>
         </div>
         <div className="hero-stats">
           <div><strong>{isLoading ? '—' : `${merged.length}+`}</strong><span>已发布课程</span><small>链上课程与线下内容绑定</small></div>
