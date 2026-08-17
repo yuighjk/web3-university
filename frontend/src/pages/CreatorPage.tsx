@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Alert, Button, Card, Col, Form, Input, Row, Tag, Typography, message } from 'antd';
+import { Alert, Button, Card, Col, Form, Input, Row, Select, Tag, Typography, message } from 'antd';
 import { usePrivy, useWallets } from '@privy-io/react-auth';
 
 import { signAction } from '@/utils/signAction';
@@ -176,8 +176,14 @@ export default function CreatorPage() {
         </Card>
       </Col>
 
-      {/* 右侧：我的课程申请 */}
+      {/* 右侧：身份申请 + 课程申请记录 */}
       <Col xs={24} lg={8}>
+        {/* 身份申请卡片 */}
+        <Card title="申请成为讲师/商家" bordered={false} style={{ marginBottom: 16 }}>
+          <ProviderApplicationForm accountAddress={accountAddress} externalWallet={externalWallet} />
+        </Card>
+
+        {/* 课程申请记录 */}
         <Card title="我的课程申请" bordered={false}>
           {requestsLoading ? (
             <Text type="secondary" style={{ display: 'block', textAlign: 'center', padding: '32px 0' }}>正在读取申请记录…</Text>
@@ -194,7 +200,7 @@ export default function CreatorPage() {
                   <div>
                     <div style={{ fontWeight: 500, fontSize: 14 }}>{req.title}</div>
                     <div style={{ color: '#888', fontSize: 12, marginTop: 2 }}>
-                      课程 #{req.course_id} · {new Date(req.created_at).toLocaleDateString('zh-CN')}
+                      {new Date(req.created_at).toLocaleDateString('zh-CN')}
                     </div>
                   </div>
                   <Tag color={STATUS_LABELS[req.status]?.color ?? 'default'}>
@@ -208,5 +214,92 @@ export default function CreatorPage() {
       </Col>
       </Row>
     </>
+  );
+}
+
+/** 身份申请表单组件 */
+function ProviderApplicationForm({ accountAddress, externalWallet }: { accountAddress?: `0x${string}`; externalWallet?: { address: string; walletClientType: string; getEthereumProvider: () => Promise<any> } }) {
+  const [form] = Form.useForm();
+  const [submitting, setSubmitting] = useState(false);
+  const [myApplication, setMyApplication] = useState<{ status: string } | null>(null);
+
+  useEffect(() => {
+    if (!accountAddress) return;
+    fetch(`${API_BASE}/api/provider-applications?wallet=${accountAddress}`)
+      .then((r) => r.ok ? r.json() : null)
+      .then((json) => {
+        if (json?.data && json.data.length > 0) {
+          setMyApplication(json.data[0] as { status: string });
+        }
+      })
+      .catch(() => {});
+  }, [accountAddress]);
+
+  const handleSubmit = async () => {
+    if (!accountAddress || !externalWallet) {
+      message.info('请先连接钱包');
+      return;
+    }
+    setSubmitting(true);
+    try {
+      const values = await form.validateFields() as { name: string; role: string; introduction: string };
+      const timestamp = Date.now();
+      const signature = await signAction(externalWallet as any, 'applyProvider', timestamp);
+      const res = await fetch(`${API_BASE}/api/provider-applications`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ...values, address: accountAddress, timestamp, signature }),
+      });
+      if (!res.ok) {
+        const payload = await res.json().catch(() => null) as { error?: string } | null;
+        throw new Error(payload?.error || '申请提交失败');
+      }
+      message.success('身份申请已提交，等待 Owner 审批');
+      setMyApplication({ status: 'pending' });
+      form.resetFields();
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : '申请失败';
+      message.error(msg.includes('reject') ? '用户取消了签名' : msg);
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  if (myApplication) {
+    const statusMap: Record<string, { color: string; text: string }> = {
+      pending: { color: 'gold', text: '审核中' },
+      approved: { color: 'green', text: '已通过' },
+      rejected: { color: 'red', text: '已拒绝' },
+    };
+    const s = statusMap[myApplication.status] ?? { color: 'default', text: myApplication.status };
+    return (
+      <div style={{ textAlign: 'center', padding: '16px 0' }}>
+        <Tag color={s.color} style={{ fontSize: 14, padding: '4px 12px' }}>{s.text}</Tag>
+        <div style={{ marginTop: 8, color: '#888', fontSize: 12 }}>
+          {myApplication.status === 'pending' ? '身份申请已提交，等待 Owner 审批' : myApplication.status === 'approved' ? '已获得讲师/商家身份，可以提交课程' : '申请被拒绝，可联系管理员'}
+        </div>
+      </div>
+    );
+  }
+
+  if (!accountAddress) {
+    return <Text type="secondary" style={{ display: 'block', textAlign: 'center', padding: '16px 0' }}>连接钱包后可申请</Text>;
+  }
+
+  return (
+    <Form form={form} layout="vertical" size="small">
+      <Form.Item name="name" label="展示名称" rules={[{ required: true, message: '请输入名称' }]}>
+        <Input placeholder="你的名字或机构名" />
+      </Form.Item>
+      <Form.Item name="role" label="申请角色" rules={[{ required: true, message: '请选择角色' }]}>
+        <Select options={[{ value: 'teacher', label: '讲师' }, { value: 'merchant', label: '商家' }]} placeholder="选择角色" />
+      </Form.Item>
+      <Form.Item name="introduction" label="个人介绍">
+        <Input.TextArea rows={2} placeholder="简单介绍自己（可选）" maxLength={500} />
+      </Form.Item>
+      <Button type="primary" block loading={submitting} onClick={() => void handleSubmit()}>
+        签名并提交身份申请
+      </Button>
+    </Form>
   );
 }
