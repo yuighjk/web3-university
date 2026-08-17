@@ -439,8 +439,10 @@ function CourseApprovalTab({ publicClient, walletClient, queryClient }: TabProps
   );
 }
 
-function CertificateTab({ publicClient, walletClient }: TabProps) {
+function CertificateTab({ publicClient }: TabProps) {
   const [loadingKey, setLoadingKey] = useState<string | null>(null);
+  const { address } = useAccount();
+  const { wallets } = useWallets();
 
   // Fetch certificate requests from backend (pending)
   const { data: certRequests, isLoading, refetch } = useQuery<{ id: number; user_address: string; course_id: number; course_title: string; status: string; created_at: string }[]>({
@@ -456,11 +458,18 @@ function CertificateTab({ publicClient, walletClient }: TabProps) {
 
   const handleIssueCert = useCallback(
     async (req: { id: number; user_address: string; course_id: number; course_title: string }) => {
-      if (!publicClient || !walletClient) return;
+      if (!publicClient || !address) {
+        message.error('请先连接钱包');
+        return;
+      }
+      const signingWallet = wallets.find((w) => w.address.toLowerCase() === address.toLowerCase());
+      if (!signingWallet) {
+        message.error('Owner 钱包未找到，请重新连接');
+        return;
+      }
+
       const key = `${req.user_address}-${req.course_id}`;
       setLoadingKey(key);
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const wc = walletClient as any;
       try {
         const metadata = {
           name: `${req.course_title || '课程'} 结业证书`,
@@ -473,7 +482,12 @@ function CertificateTab({ publicClient, walletClient }: TabProps) {
         };
         const tokenURI = `data:application/json;base64,${btoa(JSON.stringify(metadata))}`;
 
-        const hash = (await wc.writeContract({
+        const provider = await signingWallet.getEthereumProvider();
+        const walletPublicClient = createPublicClient({ chain: sepolia, transport: custom(provider) });
+        const { createWalletClient } = await import('viem');
+        const wc = createWalletClient({ account: address as `0x${string}`, chain: sepolia, transport: custom(provider) });
+
+        const hash = await wc.writeContract({
           address: COURSE_CERTIFICATE_ADDRESS,
           abi: courseCertificateAbi,
           functionName: 'issueCertificate',
@@ -482,8 +496,8 @@ function CertificateTab({ publicClient, walletClient }: TabProps) {
             BigInt(req.course_id),
             tokenURI,
           ],
-        })) as `0x${string}`;
-        await waitForTransactionReceipt(publicClient, { hash });
+        });
+        await walletPublicClient.waitForTransactionReceipt({ hash });
 
         // Update backend status
         await fetch(`${API_BASE}/api/certificate-requests/${req.id}`, {
@@ -500,7 +514,6 @@ function CertificateTab({ publicClient, walletClient }: TabProps) {
           message.error('用户取消了交易');
         } else if (msg.includes('Certificate already issued')) {
           message.warning('该证书已发放');
-          // Still update backend
           await fetch(`${API_BASE}/api/certificate-requests/${req.id}`, {
             method: 'PATCH',
             headers: { 'Content-Type': 'application/json' },
@@ -514,7 +527,7 @@ function CertificateTab({ publicClient, walletClient }: TabProps) {
         setLoadingKey(null);
       }
     },
-    [publicClient, walletClient, refetch],
+    [publicClient, address, wallets, refetch],
   );
 
   const columns = [
