@@ -93,7 +93,6 @@ export default function CourseList() {
                   <div className="card-kicker"><span>WEB3 COURSE</span><span><StarOutlined /> 5.0</span></div>
                   <h2>{course.title}</h2>
                   <p>{course.description || '课程内容已通过链上指纹绑定，购买后即可进入学习。'}</p>
-                  <div className="instructor-row"><span className="instructor-avatar">{course.provider.slice(2, 4).toUpperCase()}</span><span>{`${course.provider.slice(0, 8)}...${course.provider.slice(-6)}`}</span></div>
                   <div className="card-footer"><div><small>课程费用</small><strong>{formatUnits(course.price, 18)} YD</strong></div><Button>查看课程 <ArrowRightOutlined /></Button></div>
                 </div>
               </article>

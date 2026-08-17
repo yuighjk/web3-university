@@ -4,11 +4,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   Alert,
   Button,
-  Card,
-  Form,
-  Input,
   message,
-  Select,
   Space,
   Spin,
   Table,
@@ -28,17 +24,6 @@ import { signAction } from '@/utils/signAction';
 
 const { Title, Text } = Typography;
 const API_BASE = import.meta.env.VITE_API_BASE_URL || '';
-
-const PROVIDER_TYPE_LABELS: Record<number, string> = {
-  0: '无',
-  1: '教师',
-  2: '商家',
-};
-
-interface ProviderEntry {
-  address: string;
-  pType: number;
-}
 
 export default function AdminPage() {
   const { address } = useAccount();
@@ -160,99 +145,111 @@ interface TabProps {
 }
 
 function ProviderTab({ publicClient, walletClient, queryClient }: TabProps) {
-  const [form] = Form.useForm();
   const [loading, setLoading] = useState(false);
-  const [providers, setProviders] = useState<ProviderEntry[]>([]);
 
-  const handleSetProvider = useCallback(async () => {
+  // Fetch pending provider applications from backend
+  const { data: applications, isLoading: appsLoading, refetch: refetchApps } = useQuery<{ id: number; wallet_address: string; role: string; name: string; introduction: string; status: string; created_at: string }[]>({
+    queryKey: ['provider-applications'],
+    queryFn: async () => {
+      const res = await fetch(`${API_BASE}/api/provider-applications?status=pending`);
+      if (!res.ok) return [];
+      const json = await res.json() as { data: { id: number; wallet_address: string; role: string; name: string; introduction: string; status: string; created_at: string }[] };
+      return json.data;
+    },
+    retry: 1,
+  });
+
+  const handleApprove = useCallback(async (app: { id: number; wallet_address: string; role: string; name: string }) => {
     if (!publicClient || !walletClient) return;
-    const values = await form.validateFields() as { providerAddress: string; pType: number };
     setLoading(true);
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const wc = walletClient as any;
     try {
+      // 1. Call contract setProvider
+      const pType = app.role === 'teacher' ? 1 : 2;
       const hash = (await wc.writeContract({
         address: COURSE_MARKET_ADDRESS,
         abi: courseMarketAbi,
         functionName: 'setProvider',
-        args: [values.providerAddress as `0x${string}`, values.pType],
+        args: [app.wallet_address as `0x${string}`, pType],
       })) as `0x${string}`;
       await waitForTransactionReceipt(publicClient, { hash });
-      message.success('Provider 设置成功');
-      setProviders((prev) => [
-        ...prev.filter((p) => p.address !== values.providerAddress),
-        { address: values.providerAddress, pType: values.pType },
-      ]);
-      form.resetFields();
+
+      // 2. Update backend status
+      await fetch(`${API_BASE}/api/provider-applications/${app.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status: 'approved' }),
+      });
+
+      message.success(`已批准 ${app.name} 为${app.role === 'teacher' ? '教师' : '商家'}`);
+      void refetchApps();
       queryClient?.invalidateQueries({ queryKey: ['providers'] });
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : '操作失败';
-      if (msg.includes('User rejected') || msg.includes('user rejected')) {
-        message.error('用户取消了交易');
-      } else {
-        message.error(`设置失败：${msg.slice(0, 80)}`);
-      }
+      message.error(msg.includes('rejected') ? '用户取消了交易' : `审批失败：${msg.slice(0, 80)}`);
     } finally {
       setLoading(false);
     }
-  }, [form, publicClient, walletClient, queryClient]);
+  }, [publicClient, walletClient, queryClient, refetchApps]);
+
+  const handleReject = useCallback(async (app: { id: number; name: string }) => {
+    await fetch(`${API_BASE}/api/provider-applications/${app.id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ status: 'rejected' }),
+    });
+    message.info(`已拒绝 ${app.name} 的申请`);
+    void refetchApps();
+  }, [refetchApps]);
 
   const columns = [
-    {
-      title: '地址',
-      dataIndex: 'address',
-      key: 'address',
-      render: (v: string) => <Text code>{v}</Text>,
-    },
+    { title: '姓名', dataIndex: 'name', key: 'name' },
     {
       title: '角色',
-      dataIndex: 'pType',
-      key: 'pType',
-      render: (v: number) => <Tag>{PROVIDER_TYPE_LABELS[v] ?? '未知'}</Tag>,
+      dataIndex: 'role',
+      key: 'role',
+      render: (v: string) => <Tag color={v === 'teacher' ? 'blue' : 'green'}>{v === 'teacher' ? '教师' : '商家'}</Tag>,
+    },
+    {
+      title: '钱包地址',
+      dataIndex: 'wallet_address',
+      key: 'wallet_address',
+      render: (v: string) => <Text code style={{ fontSize: 11 }}>{`${v.slice(0, 8)}...${v.slice(-6)}`}</Text>,
+    },
+    { title: '介绍', dataIndex: 'introduction', key: 'introduction', ellipsis: true },
+    {
+      title: '申请时间',
+      dataIndex: 'created_at',
+      key: 'created_at',
+      render: (v: string) => new Date(v).toLocaleDateString('zh-CN'),
+    },
+    {
+      title: '操作',
+      key: 'action',
+      render: (_: unknown, record: { id: number; wallet_address: string; role: string; name: string }) => (
+        <Space>
+          <Button type="primary" size="small" loading={loading} onClick={() => void handleApprove(record)}>
+            批准
+          </Button>
+          <Button size="small" danger onClick={() => void handleReject(record)}>
+            拒绝
+          </Button>
+        </Space>
+      ),
     },
   ];
 
-  return (
-    <Space direction="vertical" style={{ width: '100%' }} size={24}>
-      <Card title="添加 / 修改 Provider">
-        <Form form={form} layout="vertical" style={{ maxWidth: 480 }}>
-          <Form.Item
-            name="providerAddress"
-            label="钱包地址"
-            rules={[
-              { required: true, message: '请输入地址' },
-              { pattern: /^0x[0-9a-fA-F]{40}$/, message: '请输入合法的以太坊地址' },
-            ]}
-          >
-            <Input placeholder="0x..." />
-          </Form.Item>
-          <Form.Item name="pType" label="角色" rules={[{ required: true, message: '请选择角色' }]}>
-            <Select
-              options={[
-                { value: 0, label: '无（撤销授权）' },
-                { value: 1, label: '教师 (Teacher)' },
-                { value: 2, label: '商家 (Merchant)' },
-              ]}
-            />
-          </Form.Item>
-          <Button type="primary" loading={loading} onClick={() => void handleSetProvider()}>
-            提交到链上
-          </Button>
-        </Form>
-      </Card>
+  if (appsLoading) return <Spin />;
 
-      {providers.length > 0 && (
-        <Card title="本次会话已设置的 Provider">
-          <Table
-            dataSource={providers}
-            columns={columns}
-            rowKey="address"
-            size="small"
-            pagination={false}
-          />
-        </Card>
-      )}
-    </Space>
+  return (
+    <Table
+      dataSource={applications ?? []}
+      columns={columns}
+      rowKey="id"
+      locale={{ emptyText: '暂无待审批的身份申请' }}
+      size="small"
+    />
   );
 }
 
@@ -442,42 +439,36 @@ function CourseApprovalTab({ publicClient, walletClient, queryClient }: TabProps
   );
 }
 
-interface CompletedStudent {
-  user_address: string;
-  course_id: number;
-  course_title: string;
-  completed_at: string;
-}
-
 function CertificateTab({ publicClient, walletClient }: TabProps) {
   const [loadingKey, setLoadingKey] = useState<string | null>(null);
 
-  const { data: students, isLoading, refetch } = useQuery<CompletedStudent[]>({
-    queryKey: ['completed-students'],
+  // Fetch certificate requests from backend (pending)
+  const { data: certRequests, isLoading, refetch } = useQuery<{ id: number; user_address: string; course_id: number; course_title: string; status: string; created_at: string }[]>({
+    queryKey: ['certificate-requests'],
     queryFn: async () => {
-      const res = await fetch(`${API_BASE}/api/progress?completed=true`);
-      if (!res.ok) throw new Error('加载失败');
-      const json = await res.json() as { data: CompletedStudent[] };
+      const res = await fetch(`${API_BASE}/api/certificate-requests?status=pending`);
+      if (!res.ok) return [];
+      const json = await res.json() as { data: { id: number; user_address: string; course_id: number; course_title: string; status: string; created_at: string }[] };
       return json.data;
     },
     retry: 1,
   });
 
   const handleIssueCert = useCallback(
-    async (student: CompletedStudent) => {
+    async (req: { id: number; user_address: string; course_id: number; course_title: string }) => {
       if (!publicClient || !walletClient) return;
-      const key = `${student.user_address}-${student.course_id}`;
+      const key = `${req.user_address}-${req.course_id}`;
       setLoadingKey(key);
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const wc = walletClient as any;
       try {
         const metadata = {
-          name: `${student.course_title} 结业证书`,
-          description: `恭喜 ${student.user_address} 完成课程《${student.course_title}》`,
+          name: `${req.course_title || '课程'} 结业证书`,
+          description: `恭喜 ${req.user_address} 完成课程《${req.course_title}》`,
           attributes: [
-            { trait_type: 'Course ID', value: student.course_id },
-            { trait_type: 'Student', value: student.user_address },
-            { trait_type: 'Completed At', value: student.completed_at },
+            { trait_type: 'Course ID', value: req.course_id },
+            { trait_type: 'Student', value: req.user_address },
+            { trait_type: 'Issue Date', value: new Date().toISOString().slice(0, 10) },
           ],
         };
         const tokenURI = `data:application/json;base64,${btoa(JSON.stringify(metadata))}`;
@@ -487,14 +478,21 @@ function CertificateTab({ publicClient, walletClient }: TabProps) {
           abi: courseCertificateAbi,
           functionName: 'issueCertificate',
           args: [
-            student.user_address as `0x${string}`,
-            BigInt(student.course_id),
+            req.user_address as `0x${string}`,
+            BigInt(req.course_id),
             tokenURI,
           ],
         })) as `0x${string}`;
         await waitForTransactionReceipt(publicClient, { hash });
 
-        message.success(`证书已发放给 ${student.user_address.slice(0, 8)}...`);
+        // Update backend status
+        await fetch(`${API_BASE}/api/certificate-requests/${req.id}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ status: 'approved' }),
+        });
+
+        message.success(`证书已发放给 ${req.user_address.slice(0, 8)}...`);
         void refetch();
       } catch (err: unknown) {
         const msg = err instanceof Error ? err.message : '操作失败';
@@ -502,6 +500,13 @@ function CertificateTab({ publicClient, walletClient }: TabProps) {
           message.error('用户取消了交易');
         } else if (msg.includes('Certificate already issued')) {
           message.warning('该证书已发放');
+          // Still update backend
+          await fetch(`${API_BASE}/api/certificate-requests/${req.id}`, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ status: 'approved' }),
+          });
+          void refetch();
         } else {
           message.error(`发证失败：${msg.slice(0, 80)}`);
         }
@@ -522,11 +527,16 @@ function CertificateTab({ publicClient, walletClient }: TabProps) {
       ),
     },
     { title: '课程', dataIndex: 'course_title', key: 'course_title' },
-    { title: '完成时间', dataIndex: 'completed_at', key: 'completed_at' },
+    {
+      title: '申请时间',
+      dataIndex: 'created_at',
+      key: 'created_at',
+      render: (v: string) => new Date(v).toLocaleDateString('zh-CN'),
+    },
     {
       title: '操作',
       key: 'action',
-      render: (_: unknown, record: CompletedStudent) => {
+      render: (_: unknown, record: { id: number; user_address: string; course_id: number; course_title: string }) => {
         const key = `${record.user_address}-${record.course_id}`;
         return (
           <Button
@@ -546,10 +556,10 @@ function CertificateTab({ publicClient, walletClient }: TabProps) {
 
   return (
     <Table
-      dataSource={students ?? []}
+      dataSource={certRequests ?? []}
       columns={columns}
-      rowKey={(r: CompletedStudent) => `${r.user_address}-${r.course_id}`}
-      locale={{ emptyText: '暂无待发证书的学生' }}
+      rowKey={(r) => `${r.user_address}-${r.course_id}`}
+      locale={{ emptyText: '暂无待处理的证书申请' }}
       size="small"
     />
   );
