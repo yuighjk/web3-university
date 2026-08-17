@@ -10,7 +10,6 @@ import { MOCK_USDC_ADDRESS, SWAP_ROUTER_ADDRESS, TEST_TOKEN_FAUCET_ADDRESS, YD_T
 
 const { Title, Text } = Typography;
 const POOL_FEE = 3000;
-const DEADLINE_OFFSET = 20 * 60;
 const COOLDOWN_SECONDS = 24 * 60 * 60;
 const formatCountdown = (seconds: number) => `${Math.floor(seconds / 3600)}时 ${Math.floor((seconds % 3600) / 60)}分 ${seconds % 60}秒`;
 
@@ -76,7 +75,7 @@ export default function SwapPage() {
         await waitForTransactionReceipt(publicClient, { hash: approveHash });
       }
       setSwapStep(1);
-      const swapHash = await walletClient.writeContract({ address: SWAP_ROUTER_ADDRESS, abi: swapRouterAbi, functionName: 'exactInputSingle', args: [{ tokenIn: MOCK_USDC_ADDRESS, tokenOut: YD_TOKEN_ADDRESS, fee: POOL_FEE, recipient: address, deadline: BigInt(Math.floor(Date.now() / 1000) + DEADLINE_OFFSET), amountIn, amountOutMinimum: 0n, sqrtPriceLimitX96: 0n }] });
+      const swapHash = await walletClient.writeContract({ address: SWAP_ROUTER_ADDRESS, abi: swapRouterAbi, functionName: 'exactInputSingle', args: [{ tokenIn: MOCK_USDC_ADDRESS, tokenOut: YD_TOKEN_ADDRESS, fee: POOL_FEE, recipient: address, amountIn, amountOutMinimum: 0n, sqrtPriceLimitX96: 0n }] });
       await waitForTransactionReceipt(publicClient, { hash: swapHash });
       setSwapStep(2);
       setInputAmount('');
