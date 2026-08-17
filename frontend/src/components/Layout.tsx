@@ -210,7 +210,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
         <Header className="app-header academic-header">
           <div className="network-status">
             <Tag>Ethereum Sepolia</Tag>
-            <Tag className="contract-status"><span />合约已连接</Tag>
+            <Tag className="contract-status"><span />{walletConnected ? '钱包已连接' : '钱包未连接'}</Tag>
           </div>
           <div className="header-actions">
             <Popover
