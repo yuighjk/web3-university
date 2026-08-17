@@ -25,10 +25,14 @@ const { Title, Text } = Typography;
 const API_BASE = import.meta.env.VITE_API_BASE_URL || '';
 
 export default function AdminPage() {
-  const { address } = useAccount();
+  const { address: wagmiAddress } = useAccount();
   const publicClient = usePublicClient();
   const { data: walletClient } = useWalletClient();
   const queryClient = useQueryClient();
+  const { wallets } = useWallets();
+
+  // Privy may not populate wagmi's useAccount, so fallback to wallets[0]
+  const address = wagmiAddress ?? (wallets[0]?.address as `0x${string}` | undefined);
 
   const { data: ownerAddress, isLoading: ownerLoading } = useReadContract({
     address: COURSE_MARKET_ADDRESS,
