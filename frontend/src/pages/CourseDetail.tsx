@@ -359,6 +359,38 @@ export default function CourseDetail() {
                 标记为已完成
               </Button>
             )}
+            {(progressData?.progress ?? 0) >= 100 && !_hasCertificate && (
+              <Button
+                type="primary"
+                style={{ marginTop: 12, borderRadius: 8 }}
+                icon={<SafetyCertificateOutlined />}
+                onClick={async () => {
+                  if (!address || !externalWallet) return;
+                  try {
+                    const timestamp = Date.now();
+                    const signature = await signAction(externalWallet, 'requestCertificate', timestamp);
+                    const res = await fetch(`${API_BASE}/api/certificate-requests`, {
+                      method: 'POST',
+                      headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify({ courseId: Number(id), address, timestamp, signature }),
+                    });
+                    if (!res.ok) throw new Error('申请失败');
+                    message.success('证书申请已提交，等待 Owner 审批发放');
+                  } catch (err) {
+                    const msg = err instanceof Error ? err.message : '申请失败';
+                    message.error(msg.includes('reject') ? '用户取消了签名' : msg);
+                  }
+                }}
+              >
+                申请 ERC721 证书
+              </Button>
+            )}
+            {_hasCertificate && (
+              <div style={{ marginTop: 12, padding: '10px 14px', background: '#f6ffed', borderRadius: 8, border: '1px solid #b7eb8f' }}>
+                <SafetyCertificateOutlined style={{ color: '#52c41a', marginRight: 8 }} />
+                <Text style={{ color: '#389e0d', fontSize: 13 }}>已获得链上证书 🎉</Text>
+              </div>
+            )}
           </div>
         </Card>
       )}

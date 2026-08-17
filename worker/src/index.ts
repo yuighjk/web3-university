@@ -6,6 +6,8 @@ import { commentRoutes } from './routes/comments';
 import { userRoutes } from './routes/users';
 import { progressRoutes } from './routes/progress';
 import { courseRequestRoutes } from './routes/courseRequests';
+import { certificateRequestRoutes } from './routes/certificateRequests';
+import { providerApplicationRoutes } from './routes/providerApplications';
 import type { Env } from './types';
 
 const app = new Hono<{ Bindings: Env }>();
@@ -26,13 +28,12 @@ app.get('/', (c) => c.json({ status: 'ok' }));
 
 // Mount routes
 app.route('/api/courses', courseRoutes);
-
-// Comments are nested under courses — pass :id param via base path
 app.route('/api/courses/:id/comments', commentRoutes);
-
 app.route('/api/users', userRoutes);
 app.route('/api/progress', progressRoutes);
 app.route('/api/course-requests', courseRequestRoutes);
+app.route('/api/certificate-requests', certificateRequestRoutes);
+app.route('/api/provider-applications', providerApplicationRoutes);
 
 // 404 fallback
 app.notFound((c) => c.json({ error: 'Not found' }, 404));

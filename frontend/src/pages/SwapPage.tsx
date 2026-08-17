@@ -6,7 +6,7 @@ import { formatUnits, parseUnits, zeroAddress } from 'viem';
 import { waitForTransactionReceipt } from 'viem/actions';
 
 import { mockUsdcAbi, swapRouterAbi, testTokenFaucetAbi, ydTokenAbi } from '@/contracts/abis';
-import { MOCK_USDC_ADDRESS, SWAP_ROUTER_ADDRESS, TEST_TOKEN_FAUCET_ADDRESS, YD_TOKEN_ADDRESS } from '@/contracts/addresses';
+import { MOCK_USDC_ADDRESS, SWAP_ROUTER_ADDRESS, TEST_TOKEN_FAUCET_ADDRESS, YD_TOKEN_ADDRESS, WETH_ADDRESS } from '@/contracts/addresses';
 
 const { Title, Text } = Typography;
 const POOL_FEE = 3000;
@@ -62,21 +62,28 @@ export default function SwapPage() {
 
   const handleSwap = useCallback(async () => {
     if (!address || !publicClient || !walletClient) return message.error('请先连接钱包');
-    if (inputToken === 'ETH') return message.info('ETH → YD 需要先部署 WETH/YD Uniswap 池，当前不会发送无效交易');
     if (!inputAmount || Number(inputAmount) <= 0) return message.error('请输入兑换数量');
-    const amountIn = parseUnits(inputAmount, 6);
-    if (usdcBalance !== undefined && amountIn > usdcBalance) return message.error('mUSDC 余额不足');
     setSwapping(true);
     try {
       setSwapStep(0);
-      const allowance = await publicClient.readContract({ address: MOCK_USDC_ADDRESS, abi: mockUsdcAbi, functionName: 'allowance', args: [address, SWAP_ROUTER_ADDRESS] });
-      if (allowance < amountIn) {
-        const approveHash = await walletClient.writeContract({ address: MOCK_USDC_ADDRESS, abi: mockUsdcAbi, functionName: 'approve', args: [SWAP_ROUTER_ADDRESS, amountIn] });
-        await waitForTransactionReceipt(publicClient, { hash: approveHash });
+      if (inputToken === 'mUSDC') {
+        const amountIn = parseUnits(inputAmount, 6);
+        if (usdcBalance !== undefined && amountIn > usdcBalance) { message.error('mUSDC 余额不足'); setSwapping(false); return; }
+        const allowance = await publicClient.readContract({ address: MOCK_USDC_ADDRESS, abi: mockUsdcAbi, functionName: 'allowance', args: [address, SWAP_ROUTER_ADDRESS] });
+        if (allowance < amountIn) {
+          const approveHash = await walletClient.writeContract({ address: MOCK_USDC_ADDRESS, abi: mockUsdcAbi, functionName: 'approve', args: [SWAP_ROUTER_ADDRESS, amountIn] });
+          await waitForTransactionReceipt(publicClient, { hash: approveHash });
+        }
+        setSwapStep(1);
+        const swapHash = await walletClient.writeContract({ address: SWAP_ROUTER_ADDRESS, abi: swapRouterAbi, functionName: 'exactInputSingle', args: [{ tokenIn: MOCK_USDC_ADDRESS, tokenOut: YD_TOKEN_ADDRESS, fee: POOL_FEE, recipient: address, amountIn, amountOutMinimum: 0n, sqrtPriceLimitX96: 0n }] });
+        await waitForTransactionReceipt(publicClient, { hash: swapHash });
+      } else {
+        // ETH → YD: SwapRouter02 accepts native ETH via msg.value, wraps to WETH internally
+        const amountIn = parseUnits(inputAmount, 18);
+        setSwapStep(1);
+        const swapHash = await walletClient.writeContract({ address: SWAP_ROUTER_ADDRESS, abi: swapRouterAbi, functionName: 'exactInputSingle', args: [{ tokenIn: WETH_ADDRESS, tokenOut: YD_TOKEN_ADDRESS, fee: POOL_FEE, recipient: address, amountIn, amountOutMinimum: 0n, sqrtPriceLimitX96: 0n }], value: amountIn });
+        await waitForTransactionReceipt(publicClient, { hash: swapHash });
       }
-      setSwapStep(1);
-      const swapHash = await walletClient.writeContract({ address: SWAP_ROUTER_ADDRESS, abi: swapRouterAbi, functionName: 'exactInputSingle', args: [{ tokenIn: MOCK_USDC_ADDRESS, tokenOut: YD_TOKEN_ADDRESS, fee: POOL_FEE, recipient: address, amountIn, amountOutMinimum: 0n, sqrtPriceLimitX96: 0n }] });
-      await waitForTransactionReceipt(publicClient, { hash: swapHash });
       setSwapStep(2);
       setInputAmount('');
       message.success('兑换完成，余额已更新');
@@ -112,8 +119,8 @@ export default function SwapPage() {
             <div className="swap-direction"><ArrowDownOutlined /></div>
             <div className="swap-token-panel output"><div className="swap-panel-heading"><span>预计获得</span><small>YD 余额 {ydBalance === undefined ? '--' : Number(formatUnits(ydBalance, 18)).toFixed(2)}</small></div><div className="swap-output-value">{estimatedOutput}<b>YD</b></div></div>
             <Steps size="small" current={swapStep} items={[{ title: '授权 mUSDC' }, { title: 'Uniswap 兑换' }, { title: '余额更新' }]} style={{ margin: '22px 0' }} />
-            {inputToken === 'ETH' && <Alert type="warning" showIcon message="ETH 路径尚未上链" description="需要新增 WETH/YD Uniswap 池与流动性。页面保留目标汇率说明，但不会伪造兑换结果。" style={{ marginBottom: 16 }} />}
-            <Button type="primary" block size="large" loading={swapping} disabled={!address || !inputAmount || Number(inputAmount) <= 0 || inputToken === 'ETH'} onClick={() => void handleSwap()} style={{ borderRadius: 10, height: 48, fontSize: 15, fontWeight: 600, ...( (!address || !inputAmount || Number(inputAmount) <= 0 || inputToken === 'ETH') && !swapping ? { background: '#e0e0e0', borderColor: '#e0e0e0', color: '#666' } : {}) }}>{!address ? '连接钱包后兑换' : inputToken === 'ETH' ? 'ETH 路径待部署' : '兑换 YD'}</Button>
+            {inputToken === 'ETH' && <Alert type="info" showIcon message="ETH 兑换将通过 WETH/YD 池完成" description="SwapRouter02 自动将 ETH 包装为 WETH 后兑换。参考比例 1 ETH ≈ 2000 YD。" style={{ marginBottom: 16 }} />}
+            <Button type="primary" block size="large" loading={swapping} disabled={!address || !inputAmount || Number(inputAmount) <= 0} onClick={() => void handleSwap()} style={{ borderRadius: 10, height: 48, fontSize: 15, fontWeight: 600, ...( (!address || !inputAmount || Number(inputAmount) <= 0) && !swapping ? { background: '#e0e0e0', borderColor: '#e0e0e0', color: '#666' } : {}) }}>兑换 YD</Button>
           </Card>
         </Col>
       </Row>
