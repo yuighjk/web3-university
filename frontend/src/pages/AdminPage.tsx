@@ -458,13 +458,15 @@ function CertificateTab({ publicClient }: TabProps) {
 
   const handleIssueCert = useCallback(
     async (req: { id: number; user_address: string; course_id: number; course_title: string }) => {
-      if (!publicClient || !address) {
+      if (!address) {
         message.error('请先连接钱包');
         return;
       }
-      const signingWallet = wallets.find((w) => w.address.toLowerCase() === address.toLowerCase());
+      // Find any available wallet (external or embedded)
+      const signingWallet = wallets.find((w) => w.address.toLowerCase() === address.toLowerCase())
+        || wallets[0];
       if (!signingWallet) {
-        message.error('Owner 钱包未找到，请重新连接');
+        message.error('未检测到可用钱包，请重新连接');
         return;
       }
 
