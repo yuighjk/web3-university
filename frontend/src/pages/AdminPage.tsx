@@ -487,6 +487,7 @@ function CertificateTab({ publicClient }: TabProps) {
 
       const key = `${req.user_address}-${req.course_id}`;
       setLoadingKey(key);
+      message.loading({ content: '正在准备发放证书...', key: 'cert-issue' });
       try {
         const metadata = {
           name: `${req.course_title || '课程'} 结业证书`,
@@ -526,11 +527,12 @@ function CertificateTab({ publicClient }: TabProps) {
         message.success(`证书已发放给 ${req.user_address.slice(0, 8)}...`);
         void refetch();
       } catch (err: unknown) {
-        const msg = err instanceof Error ? err.message : '操作失败';
+        console.error('[CertificateTab] handleIssueCert error:', err);
+        const msg = err instanceof Error ? err.message : String(err);
         if (msg.includes('User rejected') || msg.includes('user rejected')) {
-          message.error('用户取消了交易');
+          message.error({ content: '用户取消了交易', key: 'cert-issue' });
         } else if (msg.includes('Certificate already issued')) {
-          message.warning('该证书已发放');
+          message.warning({ content: '该证书已发放', key: 'cert-issue' });
           await fetch(`${API_BASE}/api/certificate-requests/${req.id}`, {
             method: 'PATCH',
             headers: { 'Content-Type': 'application/json' },
@@ -538,7 +540,7 @@ function CertificateTab({ publicClient }: TabProps) {
           });
           void refetch();
         } else {
-          message.error(`发证失败：${msg.slice(0, 80)}`);
+          message.error({ content: `发证失败：${msg.slice(0, 100)}`, key: 'cert-issue', duration: 8 });
         }
       } finally {
         setLoadingKey(null);
