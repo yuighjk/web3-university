@@ -16,10 +16,12 @@ commentRoutes.get('/', async (c) => {
   }
 
   const { results } = await c.env.DB.prepare(
-    `SELECT id, course_id, user_address, content, created_at
-     FROM comments
-     WHERE course_id = ?
-     ORDER BY created_at ASC`
+    `SELECT c.id, c.course_id, c.user_address, c.content, c.created_at,
+            u.username, u.avatar_url
+     FROM comments c
+     LEFT JOIN users u ON LOWER(c.user_address) = LOWER(u.address)
+     WHERE c.course_id = ?
+     ORDER BY c.created_at ASC`
   )
     .bind(courseId)
     .all();

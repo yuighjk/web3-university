@@ -165,12 +165,12 @@ export default function CourseDetail() {
     enabled: !!address && !!id && hasPurchased === true,
   });
 
-  const { data: comments, refetch: refetchComments } = useQuery<{ id: number; user_address: string; content: string; created_at: string }[]>({
+  const { data: comments, refetch: refetchComments } = useQuery<{ id: number; user_address: string; content: string; created_at: string; username?: string; avatar_url?: string }[]>({
     queryKey: ['comments', id],
     queryFn: async () => {
       const res = await fetch(`${API_BASE}/api/courses/${id}/comments`);
       if (!res.ok) return [];
-      const json = await res.json() as { data: { id: number; user_address: string; content: string; created_at: string }[] };
+      const json = await res.json() as { data: { id: number; user_address: string; content: string; created_at: string; username?: string; avatar_url?: string }[] };
       return json.data;
     },
     enabled: !!id,
@@ -279,7 +279,6 @@ export default function CourseDetail() {
           {course.certificateName && (
             <Tag icon={<SafetyCertificateOutlined />} color="cyan" style={{ fontSize: 12 }}>证书：{course.certificateName}</Tag>
           )}
-          {contentHashValid === true && <Tag color="green" style={{ fontSize: 11 }}>内容已验证</Tag>}
         </Space>
 
         {description && (
@@ -448,13 +447,17 @@ export default function CourseDetail() {
               <List.Item style={{ padding: '14px 0', border: 'none' }}>
                 <List.Item.Meta
                   avatar={
-                    <div style={{ width: 36, height: 36, borderRadius: '50%', background: '#f0ecff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 13, color: '#7355f5', fontWeight: 600 }}>
-                      {item.user_address.slice(2, 4).toUpperCase()}
-                    </div>
+                    item.avatar_url ? (
+                      <img src={item.avatar_url} alt="" style={{ width: 36, height: 36, borderRadius: '50%', objectFit: 'cover' }} />
+                    ) : (
+                      <div style={{ width: 36, height: 36, borderRadius: '50%', background: '#f0ecff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 13, color: '#7355f5', fontWeight: 600 }}>
+                        {(item.username || item.user_address.slice(2, 4)).slice(0, 2).toUpperCase()}
+                      </div>
+                    )
                   }
                   title={
                     <Space>
-                      <Text style={{ fontSize: 13, color: '#333' }}>{item.user_address.slice(0, 6)}...{item.user_address.slice(-4)}</Text>
+                      <Text style={{ fontSize: 13, color: '#333' }}>{item.username || `${item.user_address.slice(0, 6)}...${item.user_address.slice(-4)}`}</Text>
                       <Text type="secondary" style={{ fontSize: 11 }}>
                         <ClockCircleOutlined style={{ marginRight: 3 }} />
                         {new Date(item.created_at).toLocaleDateString('zh-CN')}
